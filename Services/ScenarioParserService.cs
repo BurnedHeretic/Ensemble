@@ -1,6 +1,7 @@
 ﻿using Ensemble.Models;
 using System.Globalization;
 using System.Numerics;
+using System.Reflection.Metadata;
 using System.Xml.Linq;
 
 namespace Ensemble.Services
@@ -166,6 +167,12 @@ namespace Ensemble.Services
             foreach (XElement element
                      in objects.Elements("Object"))
             {
+
+                int id =
+                    ReadIntAttribute(
+                        element,
+                        "ID");
+
                 ScenarioObject obj =
                     new ScenarioObject
                     {
@@ -173,6 +180,12 @@ namespace Ensemble.Services
                             ReadIntAttribute(
                                 element,
                                 "ID"),
+
+                        IsNewObject =
+                        false,
+
+                        SourceObjectId =
+                        id,
 
                         IsSquad =
                             ReadBoolAttribute(
@@ -226,6 +239,25 @@ namespace Ensemble.Services
                             ReadDirectText(
                                 element)
                     };
+
+                int maxKnownId =
+                    root
+        .Descendants()
+        .Attributes("ID")
+        .Select(
+            x =>
+                int.TryParse(
+                    x.Value,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int id)
+                    ? id
+                    : 0)
+        .DefaultIfEmpty(0)
+        .Max();
+
+                map.MaxKnownId =
+                    maxKnownId;
 
                 foreach (XElement flag
                          in element.Elements("Flag"))

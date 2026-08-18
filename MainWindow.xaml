@@ -71,6 +71,14 @@
               Click="Redo_Click"
               IsEnabled="False"/>
 
+                <Separator/>
+
+                <MenuItem x:Name="DuplicateObjectMenuItem"
+                          Header="_Duplicate Object"
+                          InputGestureText="Ctrl+D"
+                          Click="DuplicateObject_Click"
+                          IsEnabled="False"/>
+
             </MenuItem>
 
             <MenuItem Header="_View"/>

@@ -10,6 +10,18 @@ namespace Ensemble.Models
 
         public int Player { get; set; }
 
+        public bool IsNewObject
+        {
+            get;
+            set;
+        }
+
+        public int SourceObjectId
+        {
+            get;
+            set;
+        }
+
         public float TintValue { get; set; }
 
         public string EditorName { get; set; } = string.Empty;

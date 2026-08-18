@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Linq;
 
 namespace Ensemble.Services
 {
@@ -459,6 +460,68 @@ namespace Ensemble.Services
                         bigEndian));
             }
 
+            bool requiresStructuralRebuild =
+    scenario.Objects.Any(
+        x =>
+            x.IsNewObject);
+
+            if (requiresStructuralRebuild)
+            {
+                packedData =
+                    RebuildPackedXmxForNewObjects(
+                        packedData,
+                        layout,
+                        bigEndian,
+                        scenario);
+
+                // Structural rebuilding changes every absolute
+                // node/array address. Re-read the rebuilt structure
+                // before applying normal property patches.
+
+                layout =
+                    DetectPackedLayout(
+                        packedData,
+                        bigEndian);
+
+                nodes =
+                    ReadPackedArray(
+                        packedData,
+                        layout.NodesArrayOffset,
+                        bigEndian,
+                        layout.PointerSize);
+
+                variantData =
+                    ReadPackedArray(
+                        packedData,
+                        layout.VariantArrayOffset,
+                        bigEndian,
+                        layout.PointerSize);
+
+                parsedNodes =
+                    new List<XmxNode>(
+                        checked(
+                            (int)nodes.Count));
+
+                for (uint i = 0;
+                     i < nodes.Count;
+                     i++)
+                {
+                    int nodeOffset =
+                        checked(
+                            (int)(
+                                nodes.Offset +
+                                ((ulong)i *
+                                 (ulong)layout.NodeSize)));
+
+                    parsedNodes.Add(
+                        ParseNode(
+                            packedData,
+                            nodeOffset,
+                            layout,
+                            bigEndian));
+                }
+            }
+
             PatchScenarioValues(
                 packedData,
                 parsedNodes,
@@ -714,13 +777,260 @@ namespace Ensemble.Services
             }
         }
 
+        private static byte[] RebuildPackedXmxForNewObjects(
+    byte[] originalData,
+    PackedLayout layout,
+    bool bigEndian,
+    ScenarioMap scenario)
+        {
+            PackedArray originalNodesArray =
+                ReadPackedArray(
+                    originalData,
+                    layout.NodesArrayOffset,
+                    bigEndian,
+                    layout.PointerSize);
+
+            PackedArray originalVariantData =
+                ReadPackedArray(
+                    originalData,
+                    layout.VariantArrayOffset,
+                    bigEndian,
+                    layout.PointerSize);
+
+            List<StructuralNode> nodes =
+                new();
+
+            for (uint i = 0;
+                 i < originalNodesArray.Count;
+                 i++)
+            {
+                int nodeOffset =
+                    checked(
+                        (int)(
+                            originalNodesArray.Offset +
+                            ((ulong)i *
+                             (ulong)layout.NodeSize)));
+
+                XmxNode source =
+                    ParseNode(
+                        originalData,
+                        nodeOffset,
+                        layout,
+                        bigEndian);
+
+                StructuralNode node =
+                    new StructuralNode
+                    {
+                        Parent =
+                            source.Parent,
+
+                        NameVariant =
+                            source.NameVariant,
+
+                        TextVariant =
+                            source.TextVariant
+                    };
+
+                for (uint a = 0;
+                     a < source.Attributes.Count;
+                     a++)
+                {
+                    int p =
+                        checked(
+                            (int)(
+                                source.Attributes.Offset +
+                                ((ulong)a *
+                                 XmxAttributeSize)));
+
+                    uint nameVariant =
+                        ReadUInt32(
+                            originalData,
+                            p,
+                            bigEndian);
+
+                    uint valueVariant =
+                        ReadUInt32(
+                            originalData,
+                            p + 4,
+                            bigEndian);
+
+                    node.Attributes.Add(
+                        new StructuralAttribute
+                        {
+                            Name =
+                                DecodeVariant(
+                                    nameVariant,
+                                    originalData,
+                                    originalVariantData,
+                                    bigEndian),
+
+                            NameVariant =
+                                nameVariant,
+
+                            ValueVariant =
+                                valueVariant
+                        });
+                }
+
+                for (uint c = 0;
+                     c < source.Children.Count;
+                     c++)
+                {
+                    int p =
+                        checked(
+                            (int)(
+                                source.Children.Offset +
+                                ((ulong)c * 4)));
+
+                    node.Children.Add(
+                        ReadUInt32(
+                            originalData,
+                            p,
+                            bigEndian));
+                }
+
+                nodes.Add(
+                    node);
+            }
+
+            List<byte> variantBytes =
+                originalData
+                    .AsSpan(
+                        checked(
+                            (int)originalVariantData.Offset),
+                        checked(
+                            (int)originalVariantData.Count))
+                    .ToArray()
+                    .ToList();
+
+            int objectsNodeIndex =
+                -1;
+
+            Dictionary<int, int> objectNodeById =
+                new();
+
+            for (int i = 0;
+                 i < nodes.Count;
+                 i++)
+            {
+                string nodeName =
+                    DecodeVariant(
+                        nodes[i].NameVariant,
+                        originalData,
+                        originalVariantData,
+                        bigEndian);
+
+                if (nodeName ==
+                    "Objects")
+                {
+                    objectsNodeIndex =
+                        i;
+                }
+
+                if (nodeName !=
+                    "Object")
+                {
+                    continue;
+                }
+
+                StructuralAttribute? idAttribute =
+                    nodes[i]
+                        .Attributes
+                        .FirstOrDefault(
+                            x =>
+                                x.Name ==
+                                "ID");
+
+                if (idAttribute == null)
+                    continue;
+
+                string idText =
+                    DecodeVariant(
+                        idAttribute.ValueVariant,
+                        originalData,
+                        originalVariantData,
+                        bigEndian);
+
+                if (int.TryParse(
+                        idText,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int id))
+                {
+                    objectNodeById[id] =
+                        i;
+                }
+            }
+
+            if (objectsNodeIndex < 0)
+            {
+                throw new InvalidDataException(
+                    "Scenario contains no <Objects> XMX node.");
+            }
+
+            foreach (ScenarioObject obj
+                     in scenario.Objects.Where(
+                         x =>
+                             x.IsNewObject))
+            {
+                if (!objectNodeById.TryGetValue(
+                        obj.SourceObjectId,
+                        out int sourceNodeIndex))
+                {
+                    throw new InvalidDataException(
+                        $"Cannot duplicate object {obj.Id}: " +
+                        $"source object ID {obj.SourceObjectId} " +
+                        "was not found in the original XMX.");
+                }
+
+                uint cloneIndex =
+                    CloneStructuralSubtree(
+                        nodes,
+                        sourceNodeIndex,
+                        checked(
+                            (uint)objectsNodeIndex),
+                        originalData,
+                        originalVariantData,
+                        variantBytes,
+                        bigEndian);
+
+                nodes[
+                    objectsNodeIndex]
+                    .Children
+                    .Add(
+                        cloneIndex);
+
+                StructuralNode clone =
+                    nodes[
+                        checked(
+                            (int)cloneIndex)];
+
+                SetStructuralIntegerAttribute(
+                    clone,
+                    "ID",
+                    obj.Id,
+                    variantBytes,
+                    bigEndian);
+
+                objectNodeById[obj.Id] =
+                    checked(
+                        (int)cloneIndex);
+            }
+
+            return BuildStructuralPackedXmx(
+                nodes,
+                variantBytes,
+                layout,
+                bigEndian);
+        }
+
         private static void PatchIntegerAttribute(
-    XmxNode node,
-    string attributeName,
-    int value,
-    byte[] packedData,
-    PackedArray variantData,
-    bool bigEndian)
+            XmxNode node,
+            string attributeName,
+            int value,
+            byte[] packedData,
+            PackedArray variantData,
+            bool bigEndian)
         {
             for (uint i = 0;
                  i < node.Attributes.Count;
@@ -847,6 +1157,704 @@ namespace Ensemble.Services
             throw new InvalidDataException(
                 $"Scenario node does not contain attribute " +
                 $"'{attributeName}'.");
+        }
+
+        private static uint CloneStructuralSubtree(
+    List<StructuralNode> nodes,
+    int sourceIndex,
+    uint newParent,
+    byte[] originalData,
+    PackedArray originalVariantData,
+    List<byte> variantBytes,
+    bool bigEndian)
+        {
+            StructuralNode source =
+                nodes[sourceIndex];
+
+            StructuralNode clone =
+                new StructuralNode
+                {
+                    Parent =
+                        newParent,
+
+                    NameVariant =
+                        source.NameVariant,
+
+                    TextVariant =
+                        source.TextVariant
+                };
+
+            foreach (StructuralAttribute attr
+                     in source.Attributes)
+            {
+                clone.Attributes.Add(
+                    new StructuralAttribute
+                    {
+                        Name =
+                            attr.Name,
+
+                        NameVariant =
+                            attr.NameVariant,
+
+                        ValueVariant =
+                            CloneVariantPayload(
+                                attr.ValueVariant,
+                                originalData,
+                                originalVariantData,
+                                variantBytes,
+                                bigEndian)
+                    });
+            }
+
+            uint cloneIndex =
+                checked(
+                    (uint)nodes.Count);
+
+            nodes.Add(
+                clone);
+
+            foreach (uint childIndex
+                     in source.Children)
+            {
+                uint clonedChild =
+                    CloneStructuralSubtree(
+                        nodes,
+                        checked(
+                            (int)childIndex),
+                        cloneIndex,
+                        originalData,
+                        originalVariantData,
+                        variantBytes,
+                        bigEndian);
+
+                clone.Children.Add(
+                    clonedChild);
+            }
+
+            return cloneIndex;
+        }
+
+        private static uint CloneVariantPayload(
+    uint variant,
+    byte[] originalData,
+    PackedArray originalVariantData,
+    List<byte> variantBytes,
+    bool bigEndian)
+        {
+            uint typeBits =
+                variant >>
+                24;
+
+            int type =
+                (int)(
+                    typeBits &
+                    0x0F);
+
+            bool isOffset =
+                (typeBits &
+                 0x80) != 0;
+
+            if (!isOffset)
+            {
+                return variant;
+            }
+
+            uint relativeOffset =
+                variant &
+                0x00FFFFFFu;
+
+            int sourceOffset =
+                GetVariantOffset(
+                    originalVariantData,
+                    relativeOffset,
+                    1);
+
+            int length;
+            int alignment;
+
+            switch (type)
+            {
+                case 2:
+                case 4:
+
+                    length =
+                        4;
+
+                    alignment =
+                        4;
+
+                    break;
+
+
+                case 6:
+
+                    length =
+                        8;
+
+                    alignment =
+                        8;
+
+                    break;
+
+
+                case 8:
+                    {
+                        int end =
+                            sourceOffset;
+
+                        int limit =
+                            GetVariantDataEnd(
+                                originalVariantData);
+
+                        while (end <
+                                   limit &&
+                               originalData[end] !=
+                                   0)
+                        {
+                            end++;
+                        }
+
+                        if (end >=
+                            limit)
+                        {
+                            throw new InvalidDataException(
+                                "Unterminated XMX string while cloning.");
+                        }
+
+                        length =
+                            end -
+                            sourceOffset +
+                            1;
+
+                        alignment =
+                            1;
+
+                        break;
+                    }
+
+
+                case 9:
+                    {
+                        int end =
+                            sourceOffset;
+
+                        int limit =
+                            GetVariantDataEnd(
+                                originalVariantData);
+
+                        while (end + 1 <
+                               limit)
+                        {
+                            ushort value =
+                                ReadUInt16(
+                                    originalData,
+                                    end,
+                                    bigEndian);
+
+                            end += 2;
+
+                            if (value == 0)
+                                break;
+                        }
+
+                        length =
+                            end -
+                            sourceOffset;
+
+                        alignment =
+                            2;
+
+                        break;
+                    }
+
+
+                case 10:
+                    {
+                        int vectorSize =
+                            1 +
+                            (int)(
+                                (typeBits &
+                                 0x30) >>
+                                4);
+
+                        length =
+                            vectorSize *
+                            4;
+
+                        alignment =
+                            4;
+
+                        break;
+                    }
+
+
+                default:
+
+                    throw new InvalidDataException(
+                        $"Cannot structurally clone offset XMX " +
+                        $"variant type {type}.");
+            }
+
+            AlignByteList(
+                variantBytes,
+                alignment);
+
+            int newOffset =
+                variantBytes.Count;
+
+            if (newOffset >
+                0x00FFFFFF)
+            {
+                throw new InvalidDataException(
+                    "XMX variant pool exceeded its 24-bit limit.");
+            }
+
+            for (int i = 0;
+                 i < length;
+                 i++)
+            {
+                variantBytes.Add(
+                    originalData[
+                        sourceOffset + i]);
+            }
+
+            return
+                (variant &
+                 0xFF000000u)
+                |
+                ((uint)newOffset &
+                 0x00FFFFFFu);
+        }
+
+        private static void SetStructuralIntegerAttribute(
+    StructuralNode node,
+    string attributeName,
+    int value,
+    List<byte> variantBytes,
+    bool bigEndian)
+        {
+            StructuralAttribute? attr =
+                node.Attributes
+                    .FirstOrDefault(
+                        x =>
+                            x.Name ==
+                            attributeName);
+
+            if (attr == null)
+            {
+                throw new InvalidDataException(
+                    $"Cloned object contains no " +
+                    $"'{attributeName}' attribute.");
+            }
+
+            uint variant =
+                attr.ValueVariant;
+
+            uint typeBits =
+                variant >>
+                24;
+
+            int type =
+                (int)(
+                    typeBits &
+                    0x0F);
+
+            bool isOffset =
+                (typeBits &
+                 0x80) != 0;
+
+            if (type == 3 &&
+                !isOffset)
+            {
+                if (value <
+                        -8388608 ||
+                    value >
+                        8388607)
+                {
+                    throw new InvalidDataException(
+                        $"Object ID {value} does not fit Int24.");
+                }
+
+                attr.ValueVariant =
+                    (variant &
+                     0xFF000000u)
+                    |
+                    (unchecked(
+                        (uint)value)
+                     &
+                     0x00FFFFFFu);
+
+                return;
+            }
+
+            if (type == 4 &&
+                isOffset)
+            {
+                int relativeOffset =
+                    checked(
+                        (int)(
+                            variant &
+                            0x00FFFFFFu));
+
+                if (relativeOffset >
+                    variantBytes.Count - 4)
+                {
+                    throw new InvalidDataException(
+                        "Cloned Int32 variant points outside pool.");
+                }
+
+                byte[] temp =
+                    new byte[4];
+
+                if (bigEndian)
+                {
+                    BinaryPrimitives
+                        .WriteInt32BigEndian(
+                            temp,
+                            value);
+                }
+                else
+                {
+                    BinaryPrimitives
+                        .WriteInt32LittleEndian(
+                            temp,
+                            value);
+                }
+
+                for (int i = 0;
+                     i < 4;
+                     i++)
+                {
+                    variantBytes[
+                        relativeOffset + i] =
+                            temp[i];
+                }
+
+                return;
+            }
+
+            throw new InvalidDataException(
+                $"Object ID uses unsupported XMX " +
+                $"variant type {type}.");
+        }
+
+        private static byte[] BuildStructuralPackedXmx(
+    IReadOnlyList<StructuralNode> nodes,
+    IReadOnlyList<byte> variantBytes,
+    PackedLayout layout,
+    bool bigEndian)
+        {
+            int alignment =
+                layout.PointerSize == 8
+                    ? 8
+                    : 4;
+
+            int nodesOffset =
+                AlignValue(
+                    layout.RootStructureSize,
+                    alignment);
+
+            int cursor =
+                checked(
+                    nodesOffset +
+                    nodes.Count *
+                    layout.NodeSize);
+
+            int[] attributeOffsets =
+                new int[
+                    nodes.Count];
+
+            int[] childOffsets =
+                new int[
+                    nodes.Count];
+
+            for (int i = 0;
+                 i < nodes.Count;
+                 i++)
+            {
+                StructuralNode node =
+                    nodes[i];
+
+                if (node.Attributes.Count >
+                    0)
+                {
+                    cursor =
+                        AlignValue(
+                            cursor,
+                            8);
+
+                    attributeOffsets[i] =
+                        cursor;
+
+                    cursor =
+                        checked(
+                            cursor +
+                            node.Attributes.Count *
+                            XmxAttributeSize);
+                }
+
+                if (node.Children.Count >
+                    0)
+                {
+                    cursor =
+                        AlignValue(
+                            cursor,
+                            4);
+
+                    childOffsets[i] =
+                        cursor;
+
+                    cursor =
+                        checked(
+                            cursor +
+                            node.Children.Count *
+                            4);
+                }
+            }
+
+            int variantOffset =
+                AlignValue(
+                    cursor,
+                    8);
+
+            int totalSize =
+                checked(
+                    variantOffset +
+                    variantBytes.Count);
+
+            byte[] result =
+                new byte[
+                    totalSize];
+
+            WriteVariantUInt32(
+                result,
+                0,
+                XmxSignature,
+                bigEndian);
+
+            WritePackedArrayHeader(
+                result,
+                layout.NodesArrayOffset,
+                checked(
+                    (uint)nodes.Count),
+                checked(
+                    (ulong)nodesOffset),
+                layout.PointerSize,
+                bigEndian);
+
+            WritePackedArrayHeader(
+                result,
+                layout.VariantArrayOffset,
+                checked(
+                    (uint)variantBytes.Count),
+                checked(
+                    (ulong)variantOffset),
+                layout.PointerSize,
+                bigEndian);
+
+            for (int i = 0;
+                 i < nodes.Count;
+                 i++)
+            {
+                StructuralNode node =
+                    nodes[i];
+
+                int p =
+                    checked(
+                        nodesOffset +
+                        i *
+                        layout.NodeSize);
+
+                WriteVariantUInt32(
+                    result,
+                    p +
+                    layout.NodeParentOffset,
+                    node.Parent,
+                    bigEndian);
+
+                WriteVariantUInt32(
+                    result,
+                    p +
+                    layout.NodeNameOffset,
+                    node.NameVariant,
+                    bigEndian);
+
+                WriteVariantUInt32(
+                    result,
+                    p +
+                    layout.NodeTextOffset,
+                    node.TextVariant,
+                    bigEndian);
+
+                WritePackedArrayHeader(
+                    result,
+                    p +
+                    layout.NodeAttributesOffset,
+                    checked(
+                        (uint)node.Attributes.Count),
+                    node.Attributes.Count == 0
+                        ? ulong.MaxValue
+                        : checked(
+                            (ulong)attributeOffsets[i]),
+                    layout.PointerSize,
+                    bigEndian);
+
+                WritePackedArrayHeader(
+                    result,
+                    p +
+                    layout.NodeChildrenOffset,
+                    checked(
+                        (uint)node.Children.Count),
+                    node.Children.Count == 0
+                        ? ulong.MaxValue
+                        : checked(
+                            (ulong)childOffsets[i]),
+                    layout.PointerSize,
+                    bigEndian);
+
+                for (int a = 0;
+                     a < node.Attributes.Count;
+                     a++)
+                {
+                    int ap =
+                        attributeOffsets[i] +
+                        a *
+                        XmxAttributeSize;
+
+                    WriteVariantUInt32(
+                        result,
+                        ap,
+                        node.Attributes[a]
+                            .NameVariant,
+                        bigEndian);
+
+                    WriteVariantUInt32(
+                        result,
+                        ap + 4,
+                        node.Attributes[a]
+                            .ValueVariant,
+                        bigEndian);
+                }
+
+                for (int c = 0;
+                     c < node.Children.Count;
+                     c++)
+                {
+                    WriteVariantUInt32(
+                        result,
+                        childOffsets[i] +
+                        c * 4,
+                        node.Children[c],
+                        bigEndian);
+                }
+            }
+
+            for (int i = 0;
+                 i < variantBytes.Count;
+                 i++)
+            {
+                result[
+                    variantOffset + i] =
+                        variantBytes[i];
+            }
+
+            return result;
+        }
+
+        private static int AlignValue(
+            int value,
+            int alignment)
+        {
+            int remainder =
+                value %
+                alignment;
+
+            return remainder == 0
+                ? value
+                : checked(
+                    value +
+                    alignment -
+                    remainder);
+        }
+
+        private static void AlignByteList(
+            List<byte> bytes,
+            int alignment)
+        {
+            while ((bytes.Count %
+                    alignment) != 0)
+            {
+                bytes.Add(
+                    0);
+            }
+        }
+
+        private static void WritePackedArrayHeader(
+    byte[] data,
+    int offset,
+    uint count,
+    ulong pointer,
+    int pointerSize,
+    bool bigEndian)
+        {
+            WriteVariantUInt32(
+                data,
+                offset,
+                count,
+                bigEndian);
+
+            if (pointerSize == 8)
+            {
+                WriteUInt64Value(
+                    data,
+                    offset + 8,
+                    count == 0
+                        ? ulong.MaxValue
+                        : pointer,
+                    bigEndian);
+            }
+            else
+            {
+                WriteVariantUInt32(
+                    data,
+                    offset + 4,
+                    count == 0
+                        ? uint.MaxValue
+                        : checked(
+                            (uint)pointer),
+                    bigEndian);
+            }
+        }
+
+        private static void WriteUInt64Value(
+            byte[] data,
+            int offset,
+            ulong value,
+            bool bigEndian)
+        {
+            EnsureRange(
+                data,
+                offset,
+                8);
+
+            if (bigEndian)
+            {
+                BinaryPrimitives
+                    .WriteUInt64BigEndian(
+                        data.AsSpan(
+                            offset,
+                            8),
+                        value);
+            }
+            else
+            {
+                BinaryPrimitives
+                    .WriteUInt64LittleEndian(
+                        data.AsSpan(
+                            offset,
+                            8),
+                        value);
+            }
         }
 
         private static void WriteInt32(
@@ -2932,6 +3940,58 @@ namespace Ensemble.Services
             public ulong Offset
             {
                 get;
+            }
+        }
+
+        private sealed class StructuralNode
+        {
+            public uint Parent
+            {
+                get;
+                set;
+            }
+
+            public uint NameVariant
+            {
+                get;
+                set;
+            }
+
+            public uint TextVariant
+            {
+                get;
+                set;
+            }
+
+            public List<StructuralAttribute> Attributes
+            {
+                get;
+            } = new();
+
+            public List<uint> Children
+            {
+                get;
+            } = new();
+        }
+
+        private sealed class StructuralAttribute
+        {
+            public string Name
+            {
+                get;
+                set;
+            } = string.Empty;
+
+            public uint NameVariant
+            {
+                get;
+                set;
+            }
+
+            public uint ValueVariant
+            {
+                get;
+                set;
             }
         }
 

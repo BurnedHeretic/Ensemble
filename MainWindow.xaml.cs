@@ -62,6 +62,9 @@ namespace Ensemble
             ScenarioMapCanvas.ObjectPropertiesChanged +=
                 ScenarioMapCanvas_ObjectPropertiesChanged;
 
+            ScenarioMapCanvas.ObjectAdded +=
+                ScenarioMapCanvas_ObjectAdded;
+
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
 
@@ -140,6 +143,19 @@ namespace Ensemble
                     Key.S)
             {
                 SaveCurrentDocument();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            if (Keyboard.Modifiers ==
+                ModifierKeys.Control &&
+                e.Key == 
+                Key.D)
+            {
+                DuplicateSelectedObject();
 
                 e.Handled =
                     true;
@@ -1240,6 +1256,10 @@ namespace Ensemble
             object? sender,
             Ensemble.Controls.ScenarioSelectionChangedEventArgs e)
         {
+
+            DuplicateObjectMenuItem.IsEnabled =
+                e.SelectedItem is ScenarioObject;
+
             _selectedScenarioItem =
                 e.SelectedItem;
 
@@ -1294,6 +1314,87 @@ namespace Ensemble
                         path);
 
                     break;
+            }
+        }
+
+        private void ScenarioMapCanvas_ObjectAdded(
+            object? sender,
+            Ensemble.Controls.ScenarioObjectAddedEventArgs e)
+        {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
+            _undoStack.Push(
+                new AddObjectHistoryAction(
+                    e.Object,
+                    beforeRevision,
+                    afterRevision));
+
+            _redoStack.Clear();
+
+            _currentRevisionId =
+                afterRevision;
+
+            UpdateUndoRedoUi();
+
+            UpdateDirtyState();
+
+            StatusText.Text =
+                $"Duplicated {e.Object.EditorName} | " +
+                $"New ID: {e.Object.Id}";
+        }
+
+        private sealed class AddObjectHistoryAction :
+            IScenarioHistoryAction
+        {
+            public AddObjectHistoryAction(
+                ScenarioObject obj,
+                long beforeRevisionId,
+                long afterRevisionId)
+            {
+                Object =
+                    obj;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public ScenarioObject Object
+            {
+                get;
+            }
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+            public long AfterRevisionId
+            {
+                get;
+            }
+
+            public string Description =>
+                $"Duplicate {Object.EditorName}";
+
+            public void Undo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryRemoveObject(
+                    Object);
+            }
+
+            public void Redo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryAddObject(
+                    Object);
             }
         }
 
@@ -1614,6 +1715,93 @@ namespace Ensemble
 
             e.Handled =
                 true;
+        }
+
+        private void DuplicateObject_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            DuplicateSelectedObject();
+        }
+
+        private void DuplicateSelectedObject()
+        {
+            if (_selectedScenarioItem
+                    is not ScenarioObject source ||
+                ScenarioMapCanvas.Scenario ==
+                    null)
+            {
+                return;
+            }
+
+            ScenarioMap map =
+                ScenarioMapCanvas.Scenario;
+
+            int newId =
+                ++map.MaxKnownId;
+
+            int templateId =
+                source.IsNewObject
+                    ? source.SourceObjectId
+                    : source.Id;
+
+            ScenarioObject duplicate =
+                new ScenarioObject
+                {
+                    Id =
+                        newId,
+
+                    IsNewObject =
+                        true,
+
+                    SourceObjectId =
+                        templateId,
+
+                    IsSquad =
+                        source.IsSquad,
+
+                    Player =
+                        source.Player,
+
+                    TintValue =
+                        source.TintValue,
+
+                    EditorName =
+                        source.EditorName,
+
+                    Type =
+                        source.Type,
+
+                    Position =
+                        source.Position +
+                        new Vector3(
+                            12,
+                            0,
+                            12),
+
+                    Forward =
+                        source.Forward,
+
+                    Right =
+                        source.Right,
+
+                    Group =
+                        source.Group,
+
+                    VisualVariationIndex =
+                        source.VisualVariationIndex
+                };
+
+            foreach (string flag
+                     in source.Flags)
+            {
+                duplicate.Flags.Add(
+                    flag);
+            }
+
+            ScenarioMapCanvas
+                .AddScenarioObjectFromEditor(
+                    duplicate);
         }
 
         private void ScenarioMapCanvas_ItemMoved(
@@ -2872,6 +3060,16 @@ namespace Ensemble
 
                 _currentScenarioOriginalXmbData =
                     savedScenarioXmb;
+
+                foreach (ScenarioObject obj
+                    in expected.Objects)
+                {
+                    obj.IsNewObject =
+                        false;
+
+                    obj.SourceObjectId =
+                        obj.Id;
+                }
 
                 _currentSavePath =
                     targetPath;

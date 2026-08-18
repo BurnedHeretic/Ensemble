@@ -14,6 +14,12 @@
 
         public float MaxZ { get; set; }
 
+        public int MaxKnownId
+        {
+            get;
+            set;
+        }
+
         public List<ScenarioObject> Objects { get; } = new();
 
         public List<ScenarioPlayerStart> PlayerStarts { get; } = new();

@@ -37,6 +37,9 @@ namespace Ensemble.Controls
         public event EventHandler<ScenarioObjectPropertiesChangedEventArgs>?
             ObjectPropertiesChanged;
 
+        public event EventHandler<ScenarioObjectAddedEventArgs>?
+            ObjectAdded;
+
         public MapCanvas()
         {
             Background =
@@ -1315,6 +1318,80 @@ namespace Ensemble.Controls
                     visualVariationIndex));
         }
 
+        public void AddScenarioObjectFromEditor(
+            ScenarioObject obj)
+        {
+            if (_map == null)
+                return;
+
+            _map.Objects.Add(
+                obj);
+
+            _selectedItem =
+                obj;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    obj));
+
+            ObjectAdded?.Invoke(
+                this,
+                new ScenarioObjectAddedEventArgs(
+                    obj));
+        }
+
+        public void ApplyHistoryAddObject(
+            ScenarioObject obj)
+        {
+            if (_map == null)
+                return;
+
+            if (!_map.Objects.Contains(
+                    obj))
+            {
+                _map.Objects.Add(
+                    obj);
+            }
+
+            _selectedItem =
+                obj;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    obj));
+        }
+
+        public void ApplyHistoryRemoveObject(
+            ScenarioObject obj)
+        {
+            if (_map == null)
+                return;
+
+            _map.Objects.Remove(
+                obj);
+
+            if (ReferenceEquals(
+                    _selectedItem,
+                    obj))
+            {
+                _selectedItem =
+                    null;
+            }
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    _selectedItem));
+        }
+
         public void ApplyHistoryObjectProperties(
             ScenarioObject obj,
             int player,
@@ -1859,6 +1936,22 @@ namespace Ensemble.Controls
         }
 
         public float NewRadius
+        {
+            get;
+        }
+    }
+
+    public sealed class ScenarioObjectAddedEventArgs :
+    EventArgs
+    {
+        public ScenarioObjectAddedEventArgs(
+            ScenarioObject obj)
+        {
+            Object =
+                obj;
+        }
+
+        public ScenarioObject Object
         {
             get;
         }
