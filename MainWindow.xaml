@@ -549,11 +549,98 @@
 
                                 </StackPanel>
 
-                                <Separator Margin="0,4,0,10"/>
+                                <StackPanel x:Name="ObjectPropertiesEditorPanel"
+            Visibility="Collapsed">
 
-                                <Button Content="Show Archive Information"
+                                    <Separator Margin="0,4,0,10"/>
+
+                                    <TextBlock Text="Edit Object Properties"
+               Foreground="#AAAAAA"
+               Margin="0,0,0,6"/>
+
+                                    <Grid Margin="0,0,0,8">
+
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="110"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0"
+                   Grid.Column="0"
+                   Text="Player"
+                   Foreground="#AAAAAA"
+                   VerticalAlignment="Center"/>
+
+                                        <TextBox x:Name="ObjectPlayerTextBox"
+                 Grid.Row="0"
+                 Grid.Column="1"
+                 Height="25"
+                 Margin="0,2"
+                 Padding="4,2"
+                 Background="#1E1E1E"
+                 Foreground="White"
+                 BorderBrush="#555555"
+                 FontFamily="Consolas"
+                 KeyDown="ObjectPropertyTextBox_KeyDown"/>
+
+                                        <TextBlock Grid.Row="1"
+                   Grid.Column="0"
+                   Text="Group"
+                   Foreground="#AAAAAA"
+                   VerticalAlignment="Center"/>
+
+                                        <TextBox x:Name="ObjectGroupTextBox"
+                 Grid.Row="1"
+                 Grid.Column="1"
+                 Height="25"
+                 Margin="0,2"
+                 Padding="4,2"
+                 Background="#1E1E1E"
+                 Foreground="White"
+                 BorderBrush="#555555"
+                 FontFamily="Consolas"
+                 KeyDown="ObjectPropertyTextBox_KeyDown"/>
+
+                                        <TextBlock Grid.Row="2"
+                   Grid.Column="0"
+                   Text="Visual Variation"
+                   Foreground="#AAAAAA"
+                   VerticalAlignment="Center"/>
+
+                                        <TextBox x:Name="ObjectVisualVariationTextBox"
+                 Grid.Row="2"
+                 Grid.Column="1"
+                 Height="25"
+                 Margin="0,2"
+                 Padding="4,2"
+                 Background="#1E1E1E"
+                 Foreground="White"
+                 BorderBrush="#555555"
+                 FontFamily="Consolas"
+                 KeyDown="ObjectPropertyTextBox_KeyDown"/>
+
+                                    </Grid>
+
+                                    <Button Content="Apply Object Properties"
+            Height="30"
+            Click="ApplyObjectProperties_Click"/>
+
+                                </StackPanel>
+
+                                <StackPanel x:Name="ArchiveInfoButtonPanel"
+                                            Margin="0,20,0,0">
+
+                                    <Button Content="Show Archive Information"
                                         Height="30"
                                         Click="ShowArchiveInfo_Click"/>
+
+                                </StackPanel>
 
                             </StackPanel>
 

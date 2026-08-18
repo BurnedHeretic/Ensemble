@@ -59,6 +59,9 @@ namespace Ensemble
             ScenarioMapCanvas.SphereRadiusChanged +=
                 ScenarioMapCanvas_SphereRadiusChanged;
 
+            ScenarioMapCanvas.ObjectPropertiesChanged +=
+                ScenarioMapCanvas_ObjectPropertiesChanged;
+
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
 
@@ -775,6 +778,90 @@ namespace Ensemble
             }
         }
 
+        private sealed class ObjectPropertiesHistoryAction :
+    IScenarioHistoryAction
+        {
+            public ObjectPropertiesHistoryAction(
+                ScenarioObject obj,
+                int oldPlayer,
+                int oldGroup,
+                int oldVariation,
+                int newPlayer,
+                int newGroup,
+                int newVariation,
+                long beforeRevisionId,
+                long afterRevisionId)
+            {
+                Object =
+                    obj;
+
+                OldPlayer =
+                    oldPlayer;
+
+                OldGroup =
+                    oldGroup;
+
+                OldVariation =
+                    oldVariation;
+
+                NewPlayer =
+                    newPlayer;
+
+                NewGroup =
+                    newGroup;
+
+                NewVariation =
+                    newVariation;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public ScenarioObject Object { get; }
+
+            public int OldPlayer { get; }
+
+            public int OldGroup { get; }
+
+            public int OldVariation { get; }
+
+            public int NewPlayer { get; }
+
+            public int NewGroup { get; }
+
+            public int NewVariation { get; }
+
+            public long BeforeRevisionId { get; }
+
+            public long AfterRevisionId { get; }
+
+            public string Description =>
+                $"Edit {Object.EditorName} properties";
+
+            public void Undo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryObjectProperties(
+                    Object,
+                    OldPlayer,
+                    OldGroup,
+                    OldVariation);
+            }
+
+            public void Redo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryObjectProperties(
+                    Object,
+                    NewPlayer,
+                    NewGroup,
+                    NewVariation);
+            }
+        }
+
         private void ArchiveFile_MouseDoubleClick(
             object sender,
             System.Windows.Input.MouseButtonEventArgs e)
@@ -918,6 +1005,30 @@ namespace Ensemble
                     throw new InvalidDataException(
                         $"Scenario XMB verification failed: " +
                         $"object ID {expectedObject.Id} disappeared.");
+                }
+
+                if (expectedObject.Player !=
+                    actualObject.Player)
+                {
+                    throw new InvalidDataException(
+                        $"Object {expectedObject.Id} Player " +
+                        $"failed round-trip verification.");
+                }
+
+                if (expectedObject.Group !=
+                    actualObject.Group)
+                {
+                    throw new InvalidDataException(
+                        $"Object {expectedObject.Id} Group " +
+                        $"failed round-trip verification.");
+                }
+
+                if (expectedObject.VisualVariationIndex !=
+                    actualObject.VisualVariationIndex)
+                {
+                    throw new InvalidDataException(
+                        $"Object {expectedObject.Id} VisualVariationIndex " +
+                        $"failed round-trip verification.");
                 }
 
                 RequireVectorEqual(
@@ -1582,6 +1693,21 @@ namespace Ensemble
             ScenarioObject obj)
         {
 
+            ObjectPropertiesEditorPanel.Visibility =
+                Visibility.Visible;
+
+            ObjectPlayerTextBox.Text =
+                obj.Player.ToString(
+                    CultureInfo.InvariantCulture);
+
+            ObjectGroupTextBox.Text =
+                obj.Group.ToString(
+                    CultureInfo.InvariantCulture);
+
+            ObjectVisualVariationTextBox.Text =
+                obj.VisualVariationIndex.ToString(
+                    CultureInfo.InvariantCulture);
+
             SphereRadiusEditorPanel.Visibility =
                 Visibility.Collapsed;
 
@@ -1671,6 +1797,10 @@ namespace Ensemble
         private void ShowPlayerStart(
             ScenarioPlayerStart start)
         {
+
+            ObjectPropertiesEditorPanel.Visibility =
+                Visibility.Collapsed;
+
             RightPanelTitle.Text =
                 "PLAYER START";
 
@@ -1711,6 +1841,10 @@ namespace Ensemble
         private void ShowScenarioSphere(
             ScenarioSphere sphere)
         {
+
+            ObjectPropertiesEditorPanel.Visibility =
+                Visibility.Collapsed;
+
             RightPanelTitle.Text =
                 "DESIGN SPHERE";
 
@@ -1849,6 +1983,9 @@ namespace Ensemble
             ScenarioPath path)
         {
 
+            ObjectPropertiesEditorPanel.Visibility =
+                Visibility.Collapsed;
+
             SphereRadiusEditorPanel.Visibility =
                 Visibility.Collapsed;
 
@@ -1974,6 +2111,139 @@ namespace Ensemble
 
             textBox.SelectAll();
         }
+
+        // =========================================================
+        // Object Properties Editor
+        // =========================================================
+
+        private void ScenarioMapCanvas_ObjectPropertiesChanged(
+            object? sender,
+            Ensemble.Controls.ScenarioObjectPropertiesChangedEventArgs e)
+        {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
+            _undoStack.Push(
+                new ObjectPropertiesHistoryAction(
+                    e.Object,
+                    e.OldPlayer,
+                    e.OldGroup,
+                    e.OldVisualVariationIndex,
+                    e.NewPlayer,
+                    e.NewGroup,
+                    e.NewVisualVariationIndex,
+                    beforeRevision,
+                    afterRevision));
+
+            _redoStack.Clear();
+
+            _currentRevisionId =
+                afterRevision;
+
+            UpdateUndoRedoUi();
+
+            UpdateDirtyState();
+
+            StatusText.Text =
+                $"Updated {e.Object.EditorName} properties";
+        }
+
+        private void ApplyObjectProperties_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ApplyEditedObjectProperties();
+        }
+
+        private void ObjectPropertyTextBox_KeyDown(
+            object sender,
+            KeyEventArgs e)
+        {
+            if (e.Key !=
+                Key.Enter)
+            {
+                return;
+            }
+
+            ApplyEditedObjectProperties();
+
+            e.Handled =
+                true;
+        }
+
+        private void ApplyEditedObjectProperties()
+        {
+            if (_selectedScenarioItem
+                is not ScenarioObject obj)
+            {
+                return;
+            }
+
+            if (!int.TryParse(
+                    ObjectPlayerTextBox.Text,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int player))
+            {
+                ShowInvalidInteger(
+                    "Player",
+                    ObjectPlayerTextBox);
+
+                return;
+            }
+
+            if (!int.TryParse(
+                    ObjectGroupTextBox.Text,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int group))
+            {
+                ShowInvalidInteger(
+                    "Group",
+                    ObjectGroupTextBox);
+
+                return;
+            }
+
+            if (!int.TryParse(
+                    ObjectVisualVariationTextBox.Text,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int variation))
+            {
+                ShowInvalidInteger(
+                    "Visual Variation",
+                    ObjectVisualVariationTextBox);
+
+                return;
+            }
+
+            ScenarioMapCanvas.ChangeObjectPropertiesFromEditor(
+                obj,
+                player,
+                group,
+                variation);
+        }
+
+        private void ShowInvalidInteger(
+            string propertyName,
+            TextBox textBox)
+        {
+            MessageBox.Show(
+                this,
+                $"'{textBox.Text}' is not a valid {propertyName} value.",
+                "Invalid Object Property",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            textBox.Focus();
+
+            textBox.SelectAll();
+        }
+
 
         private void BuildArchiveTree()
         {

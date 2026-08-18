@@ -237,7 +237,7 @@ namespace Ensemble.Services
         // =========================================================
 
         private static string ParsePackedXmx(
-    byte[] data)
+            byte[] data)
         {
             if (data.Length < 20)
             {
@@ -486,11 +486,11 @@ namespace Ensemble.Services
         }
 
         private static void PatchScenarioValues(
-    byte[] packedData,
-    IReadOnlyList<XmxNode> nodes,
-    PackedArray variantData,
-    bool bigEndian,
-    ScenarioMap scenario)
+            byte[] packedData,
+            IReadOnlyList<XmxNode> nodes,
+            PackedArray variantData,
+            bool bigEndian,
+            ScenarioMap scenario)
         {
             Dictionary<int, ScenarioObject> objects =
                 new Dictionary<int, ScenarioObject>();
@@ -595,6 +595,30 @@ namespace Ensemble.Services
                         variantData,
                         bigEndian);
 
+                    PatchIntegerAttribute(
+                        node,
+                        "Player",
+                        obj.Player,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
+                    PatchIntegerAttribute(
+                        node,
+                        "Group",
+                        obj.Group,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
+                    PatchIntegerAttribute(
+                        node,
+                        "VisualVariationIndex",
+                        obj.VisualVariationIndex,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
                     continue;
                 }
 
@@ -690,12 +714,178 @@ namespace Ensemble.Services
             }
         }
 
-        private static string GetParentNodeName(
+        private static void PatchIntegerAttribute(
     XmxNode node,
-    IReadOnlyList<XmxNode> nodes,
+    string attributeName,
+    int value,
     byte[] packedData,
     PackedArray variantData,
     bool bigEndian)
+        {
+            for (uint i = 0;
+                 i < node.Attributes.Count;
+                 i++)
+            {
+                int p =
+                    checked(
+                        (int)(
+                            node.Attributes.Offset +
+                            ((ulong)i *
+                             XmxAttributeSize)));
+
+                uint nameVariant =
+                    ReadUInt32(
+                        packedData,
+                        p,
+                        bigEndian);
+
+                string name =
+                    DecodeVariant(
+                        nameVariant,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
+                if (!string.Equals(
+                        name,
+                        attributeName,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                int valueVariantOffset =
+                    p + 4;
+
+                uint variant =
+                    ReadUInt32(
+                        packedData,
+                        valueVariantOffset,
+                        bigEndian);
+
+                uint typeBits =
+                    variant >>
+                    24;
+
+                int type =
+                    (int)(
+                        typeBits &
+                        0x0F);
+
+                bool isOffset =
+                    (variant &
+                     0x80000000u) != 0;
+
+                uint payload =
+                    variant &
+                    0x00FFFFFFu;
+
+                // -------------------------------------------------
+                // Type 3 = signed Int24 stored inline.
+                // -------------------------------------------------
+
+                if (type == 3 &&
+                    !isOffset)
+                {
+                    if (value <
+                            -8388608 ||
+                        value >
+                            8388607)
+                    {
+                        throw new InvalidDataException(
+                            $"Value {value} cannot be represented " +
+                            "as an XMX Int24.");
+                    }
+
+                    uint encoded =
+                        unchecked(
+                            (uint)value) &
+                        0x00FFFFFFu;
+
+                    uint newVariant =
+                        (variant &
+                         0xFF000000u) |
+                        encoded;
+
+                    WriteVariantUInt32(
+                        packedData,
+                        valueVariantOffset,
+                        newVariant,
+                        bigEndian);
+
+                    return;
+                }
+
+                // -------------------------------------------------
+                // Type 4 = external signed Int32.
+                // -------------------------------------------------
+
+                if (type == 4 &&
+                    isOffset)
+                {
+                    int dataOffset =
+                        GetVariantOffset(
+                            variantData,
+                            payload,
+                            4);
+
+                    WriteInt32(
+                        packedData,
+                        dataOffset,
+                        value,
+                        bigEndian);
+
+                    return;
+                }
+
+                throw new InvalidDataException(
+                    $"Scenario attribute '{attributeName}' " +
+                    $"uses unsupported XMX integer variant " +
+                    $"type {type}.");
+            }
+
+            throw new InvalidDataException(
+                $"Scenario node does not contain attribute " +
+                $"'{attributeName}'.");
+        }
+
+        private static void WriteInt32(
+    byte[] data,
+    int offset,
+    int value,
+    bool bigEndian)
+        {
+            EnsureRange(
+                data,
+                offset,
+                4);
+
+            if (bigEndian)
+            {
+                BinaryPrimitives
+                    .WriteInt32BigEndian(
+                        data.AsSpan(
+                            offset,
+                            4),
+                        value);
+            }
+            else
+            {
+                BinaryPrimitives
+                    .WriteInt32LittleEndian(
+                        data.AsSpan(
+                            offset,
+                            4),
+                        value);
+            }
+        }
+
+        private static string GetParentNodeName(
+            XmxNode node,
+            IReadOnlyList<XmxNode> nodes,
+            byte[] packedData,
+            PackedArray variantData,
+            bool bigEndian)
         {
             if (node.Parent ==
                 uint.MaxValue)

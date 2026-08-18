@@ -34,6 +34,9 @@ namespace Ensemble.Controls
         public event EventHandler<ScenarioSphereRadiusChangedEventArgs>?
             SphereRadiusChanged;
 
+        public event EventHandler<ScenarioObjectPropertiesChangedEventArgs>?
+            ObjectPropertiesChanged;
+
         public MapCanvas()
         {
             Background =
@@ -418,8 +421,8 @@ namespace Ensemble.Controls
         }
 
         public void ChangeSphereRadiusFromEditor(
-    ScenarioSphere sphere,
-    float newRadius)
+            ScenarioSphere sphere,
+            float newRadius)
         {
             if (newRadius < 0)
             {
@@ -1259,6 +1262,85 @@ namespace Ensemble.Controls
                     newPosition));
         }
 
+        public void ChangeObjectPropertiesFromEditor(
+            ScenarioObject obj,
+            int player,
+            int group,
+            int visualVariationIndex)
+        {
+            int oldPlayer =
+                obj.Player;
+
+            int oldGroup =
+                obj.Group;
+
+            int oldVisualVariationIndex =
+                obj.VisualVariationIndex;
+
+            if (oldPlayer == player &&
+                oldGroup == group &&
+                oldVisualVariationIndex == visualVariationIndex)
+            {
+                return;
+            }
+
+            obj.Player =
+                player;
+
+            obj.Group =
+                group;
+
+            obj.VisualVariationIndex =
+                visualVariationIndex;
+
+            _selectedItem =
+                obj;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    obj));
+
+            ObjectPropertiesChanged?.Invoke(
+                this,
+                new ScenarioObjectPropertiesChangedEventArgs(
+                    obj,
+                    oldPlayer,
+                    oldGroup,
+                    oldVisualVariationIndex,
+                    player,
+                    group,
+                    visualVariationIndex));
+        }
+
+        public void ApplyHistoryObjectProperties(
+            ScenarioObject obj,
+            int player,
+            int group,
+            int visualVariationIndex)
+        {
+            obj.Player =
+                player;
+
+            obj.Group =
+                group;
+
+            obj.VisualVariationIndex =
+                visualVariationIndex;
+
+            _selectedItem =
+                obj;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    obj));
+        }
+
         public void ApplyHistoryPosition(
             object item,
             Vector3 position)
@@ -1781,4 +1863,54 @@ namespace Ensemble.Controls
             get;
         }
     }
+
+    public sealed class ScenarioObjectPropertiesChangedEventArgs :
+    EventArgs
+    {
+        public ScenarioObjectPropertiesChangedEventArgs(
+            ScenarioObject obj,
+            int oldPlayer,
+            int oldGroup,
+            int oldVisualVariationIndex,
+            int newPlayer,
+            int newGroup,
+            int newVisualVariationIndex)
+        {
+            Object =
+                obj;
+
+            OldPlayer =
+                oldPlayer;
+
+            OldGroup =
+                oldGroup;
+
+            OldVisualVariationIndex =
+                oldVisualVariationIndex;
+
+            NewPlayer =
+                newPlayer;
+
+            NewGroup =
+                newGroup;
+
+            NewVisualVariationIndex =
+                newVisualVariationIndex;
+        }
+
+        public ScenarioObject Object { get; }
+
+        public int OldPlayer { get; }
+
+        public int OldGroup { get; }
+
+        public int OldVisualVariationIndex { get; }
+
+        public int NewPlayer { get; }
+
+        public int NewGroup { get; }
+
+        public int NewVisualVariationIndex { get; }
+    }
+
 }
