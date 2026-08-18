@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Windows.Input;
 using System.Globalization;
 using System.IO;
+using System.ComponentModel;
 using Ensemble.Models;
 using Ensemble.Services;
 using Microsoft.Win32;
@@ -17,6 +18,18 @@ namespace Ensemble
         private EraArchiveInfo? _currentArchive;
 
         private bool _isDirty;
+
+        private string?
+            _currentSavePath;
+
+        private long
+            _nextRevisionId;
+
+        private long
+            _currentRevisionId;
+
+        private long
+            _savedRevisionId;
 
         private object? _selectedScenarioItem;
 
@@ -47,15 +60,95 @@ namespace Ensemble
 
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
+
+            Closing += MainWindow_Closing;
+
+        }
+
+        private void MainWindow_Closing(
+            object? sender,
+            CancelEventArgs e)
+        {
+            if (!_isDirty)
+                return;
+
+            MessageBoxResult result =
+                MessageBox.Show(
+                    this,
+
+                    "This map contains unsaved changes.\n\n" +
+                    "Would you like to save them before closing?",
+
+                    "Unsaved Changes",
+
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Warning);
+
+            if (result ==
+                MessageBoxResult.Cancel)
+            {
+                e.Cancel =
+                    true;
+
+                return;
+            }
+
+            if (result ==
+                MessageBoxResult.No)
+            {
+                return;
+            }
+
+            // Yes
+            if (!SaveCurrentDocument())
+            {
+                // User cancelled Save As, or save failed.
+                e.Cancel =
+                    true;
+            }
         }
 
         private void MainWindow_PreviewKeyDown(
-    object sender,
-    KeyEventArgs e)
+            object sender,
+            KeyEventArgs e)
         {
+            // Ctrl + Shift + S
+            // Save As
+            if (Keyboard.Modifiers ==
+                    (ModifierKeys.Control |
+                     ModifierKeys.Shift) &&
+                e.Key ==
+                    Key.S)
+            {
+                SaveCurrentDocumentAs();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            // Ctrl + S
+            // Save
             if (Keyboard.Modifiers ==
                     ModifierKeys.Control &&
-                e.Key == Key.Z)
+                e.Key ==
+                    Key.S)
+            {
+                SaveCurrentDocument();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            // Ctrl + Z
+            // Undo
+            if (Keyboard.Modifiers ==
+                    ModifierKeys.Control &&
+                e.Key ==
+                    Key.Z)
             {
                 UndoLastMove();
 
@@ -65,14 +158,19 @@ namespace Ensemble
                 return;
             }
 
+            // Ctrl + Y
+            // Redo
             if (Keyboard.Modifiers ==
                     ModifierKeys.Control &&
-                e.Key == Key.Y)
+                e.Key ==
+                    Key.Y)
             {
                 RedoLastMove();
 
                 e.Handled =
                     true;
+
+                return;
             }
         }
 
@@ -95,6 +193,7 @@ namespace Ensemble
 
                     Multiselect =
                         false
+
                 };
 
             bool? result =
@@ -132,14 +231,31 @@ namespace Ensemble
                 EraArchiveService.Open(
                     filePath);
 
+            SaveMenuItem.IsEnabled =
+                false;
+
+            SaveAsMenuItem.IsEnabled =
+                false;
+
             _undoStack.Clear();
 
             _redoStack.Clear();
 
+            _nextRevisionId =
+                0;
+
+            _currentRevisionId =
+                0;
+
+            _savedRevisionId =
+                0;
+
+            _currentSavePath =
+                _currentArchive.FilePath;
+
             UpdateUndoRedoUi();
 
-            SetDirty(
-                false);
+            UpdateDirtyState();
 
             _currentScenarioOriginalXmbData =
                 null;
@@ -148,9 +264,6 @@ namespace Ensemble
                 null;
 
             ExportScenarioXmbMenuItem.IsEnabled =
-                false;
-
-            ExportModifiedEraMenuItem.IsEnabled =
                 false;
 
             ExtractAllMenuItem.IsEnabled = 
@@ -343,10 +456,12 @@ namespace Ensemble
             _redoStack.Push(
                 action);
 
+            _currentRevisionId =
+                action.BeforeRevisionId;
+
             UpdateUndoRedoUi();
 
-            SetDirty(
-                _undoStack.Count > 0);
+            UpdateDirtyState();
 
             StatusText.Text =
                 $"Undo: {action.Description}";
@@ -366,10 +481,12 @@ namespace Ensemble
             _undoStack.Push(
                 action);
 
+            _currentRevisionId =
+                action.AfterRevisionId;
+
             UpdateUndoRedoUi();
 
-            SetDirty(
-                true);
+            UpdateDirtyState();
 
             StatusText.Text =
                 $"Redo: {action.Description}";
@@ -407,6 +524,16 @@ namespace Ensemble
                 get;
             }
 
+            long BeforeRevisionId
+            {
+                get;
+            }
+
+            long AfterRevisionId
+            {
+                get;
+            }
+
             void Undo(
                 Ensemble.Controls.MapCanvas canvas);
 
@@ -415,12 +542,14 @@ namespace Ensemble
         }
 
         private sealed class MoveHistoryAction :
-    IScenarioHistoryAction
+            IScenarioHistoryAction
         {
             public MoveHistoryAction(
                 object item,
                 Vector3 oldPosition,
-                Vector3 newPosition)
+                Vector3 newPosition,
+                long beforeRevisionId,
+                long afterRevisionId)
             {
                 Item =
                     item;
@@ -430,6 +559,22 @@ namespace Ensemble
 
                 NewPosition =
                     newPosition;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+            public long AfterRevisionId
+            {
+                get;
             }
 
             public object Item
@@ -468,14 +613,16 @@ namespace Ensemble
         }
 
         private sealed class RotationHistoryAction :
-    IScenarioHistoryAction
+            IScenarioHistoryAction
         {
             public RotationHistoryAction(
                 object item,
                 Vector3 oldForward,
                 Vector3 oldRight,
                 Vector3 newForward,
-                Vector3 newRight)
+                Vector3 newRight,
+                long beforeRevisionId,
+                long afterRevisionId)
             {
                 Item =
                     item;
@@ -491,6 +638,22 @@ namespace Ensemble
 
                 NewRight =
                     newRight;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+            public long AfterRevisionId
+            {
+                get;
             }
 
             public object Item
@@ -588,7 +751,10 @@ namespace Ensemble
                     ExportScenarioXmbMenuItem.IsEnabled =
                         true;
 
-                    ExportModifiedEraMenuItem.IsEnabled =
+                    SaveMenuItem.IsEnabled =
+                        true;
+
+                    SaveAsMenuItem.IsEnabled =
                         true;
 
                     ScenarioMap map =
@@ -745,135 +911,6 @@ namespace Ensemble
                     expectedSphere.Position,
                     actualSphere.Position,
                     $"Design Sphere {expectedSphere.Id} Position");
-            }
-        }
-
-        private void ExportModifiedEra_Click(
-            object sender,RoutedEventArgs e)
-        {
-            if (_currentArchive == null ||
-                _currentScenarioChunk == null ||
-                _currentScenarioOriginalXmbData == null ||
-                ScenarioMapCanvas.Scenario == null)
-            {
-                return;
-            }
-
-            string sourceName =
-                System.IO.Path
-                    .GetFileNameWithoutExtension(
-                        _currentArchive.FileName);
-
-            SaveFileDialog dialog =
-                new SaveFileDialog
-                {
-                    Title =
-                        "Export Modified Halo Wars ERA",
-
-                    FileName =
-                        $"{sourceName}_ensemble.era",
-
-                    Filter =
-                        "Halo Wars ERA (*.era)|*.era|" +
-                        "All Files (*.*)|*.*"
-                };
-
-            if (dialog.ShowDialog(this) !=
-                true)
-            {
-                return;
-            }
-
-            try
-            {
-                StatusText.Text =
-                    "Building modified SCN XMB...";
-
-                ScenarioMap expected =
-                    ScenarioMapCanvas.Scenario;
-
-                byte[] modifiedXmb =
-                    XmbDocumentService.WriteScenario(
-                        _currentScenarioOriginalXmbData,
-                        expected);
-
-                StatusText.Text =
-                    "Rebuilding and encrypting ERA...";
-
-                byte[] modifiedEra =
-                    EraRebuildService.BuildModifiedEra(
-                        _currentArchive,
-                        _currentScenarioChunk,
-                        modifiedXmb);
-
-                File.WriteAllBytes(
-                    dialog.FileName,
-                    modifiedEra);
-
-                // =====================================================
-                // FULL ERA ROUND-TRIP VALIDATION
-                // =====================================================
-
-                StatusText.Text =
-                    "Verifying exported ERA...";
-
-                EraArchiveInfo verificationArchive =
-                    EraArchiveService.Open(
-                        dialog.FileName);
-
-                if (_currentScenarioChunk.Index >=
-                    verificationArchive.Chunks.Count)
-                {
-                    throw new InvalidDataException(
-                        "Exported ERA lost the scenario chunk.");
-                }
-
-                EraChunkInfo verificationChunk =
-                    verificationArchive.Chunks[
-                        _currentScenarioChunk.Index];
-
-                byte[] verificationXmb =
-                    EraExtractionService.ExtractChunk(
-                        verificationArchive,
-                        verificationChunk);
-
-                string verificationXml =
-                    XmbDocumentService.Read(
-                        verificationXmb);
-
-                ScenarioMap verificationScenario =
-                    ScenarioParserService.Parse(
-                        verificationXml);
-
-                ValidateScenarioRoundTrip(
-                    expected,
-                    verificationScenario);
-
-                StatusText.Text =
-                    $"Exported and verified " +
-                    $"{System.IO.Path.GetFileName(dialog.FileName)}";
-
-                MessageBox.Show(
-                    this,
-                    "Modified ERA exported successfully.\n\n" +
-                    "" +
-                    "" +
-                    "",
-                    "ERA Export Complete",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    this,
-                    ex.ToString(),
-                    "ERA Export Failed",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-
-                StatusText.Text =
-                    "ERA export failed.";
             }
         }
 
@@ -1378,45 +1415,64 @@ namespace Ensemble
             object? sender,
             Ensemble.Controls.ScenarioItemMovedEventArgs e)
         {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
             _undoStack.Push(
                 new MoveHistoryAction(
                     e.Item,
                     e.OldPosition,
-                    e.NewPosition));
+                    e.NewPosition,
+                    beforeRevision,
+                    afterRevision));
 
             _redoStack.Clear();
 
+            _currentRevisionId =
+                afterRevision;
+
             UpdateUndoRedoUi();
 
-            SetDirty(
-                true);
+            UpdateDirtyState();
 
             StatusText.Text =
                 $"Moved {GetItemDisplayName(e.Item)} | " +
                 $"X {e.NewPosition.X:0.##}, " +
                 $"Y {e.NewPosition.Y:0.##}, " +
-                $"Z {e.NewPosition.Z:0.##} | " +
-                $"Undo history: {_undoStack.Count}";
+                $"Z {e.NewPosition.Z:0.##}";
         }
 
         private void ScenarioMapCanvas_ItemRotated(
             object? sender,
             Ensemble.Controls.ScenarioItemRotatedEventArgs e)
         {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
             _undoStack.Push(
                 new RotationHistoryAction(
                     e.Item,
                     e.OldForward,
                     e.OldRight,
                     e.NewForward,
-                    e.NewRight));
+                    e.NewRight,
+                    beforeRevision,
+                    afterRevision));
 
             _redoStack.Clear();
 
+            _currentRevisionId =
+                afterRevision;
+
             UpdateUndoRedoUi();
 
-            SetDirty(
-                true);
+            UpdateDirtyState();
 
             float yaw =
                 Ensemble.Controls.MapCanvas
@@ -1425,8 +1481,7 @@ namespace Ensemble
 
             StatusText.Text =
                 $"Rotated {GetItemDisplayName(e.Item)} | " +
-                $"Yaw {yaw:0.##}° | " +
-                $"Undo history: {_undoStack.Count}";
+                $"Yaw {yaw:0.##}°";
         }
 
         private void ShowScenarioObject(
@@ -1474,11 +1529,11 @@ namespace Ensemble
                 $"Flags: {flags}";
         }
 
-        private void SetDirty(
-            bool dirty)
+        private void UpdateDirtyState()
         {
             _isDirty =
-                dirty;
+                _currentRevisionId !=
+                _savedRevisionId;
 
             UpdateWindowTitle();
         }
@@ -1493,8 +1548,23 @@ namespace Ensemble
                 return;
             }
 
+            string fileName;
+
+            if (!string.IsNullOrWhiteSpace(
+                    _currentSavePath))
+            {
+                fileName =
+                    System.IO.Path.GetFileName(
+                        _currentSavePath);
+            }
+            else
+            {
+                fileName =
+                    _currentArchive.FileName;
+            }
+
             Title =
-                $"Ensemble - {_currentArchive.FileName}" +
+                $"Ensemble - {fileName}" +
                 (_isDirty
                     ? " *"
                     : string.Empty);
@@ -2091,6 +2161,337 @@ namespace Ensemble
                     "Halo Wars executable patch failed.";
             }
         }
+
+        // =========================================================
+        // File - Save / Save As
+        // ========================================================
+
+        private void Save_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SaveCurrentDocument();
+        }
+
+        private bool SaveCurrentDocument()
+        {
+            if (string.IsNullOrWhiteSpace(
+                    _currentSavePath))
+            {
+                return SaveCurrentDocumentAs();
+            }
+
+            return SaveModifiedEraToPath(
+                _currentSavePath,
+                showSuccessDialog: false);
+        }
+
+        private void SaveAs_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SaveCurrentDocumentAs();
+        }
+
+        private bool SaveCurrentDocumentAs()
+        {
+            if (_currentArchive == null)
+                return false;
+
+            string sourceName =
+                System.IO.Path
+                    .GetFileNameWithoutExtension(
+                        _currentArchive.FileName);
+
+            SaveFileDialog dialog =
+                new SaveFileDialog
+                {
+                    Title =
+                        "Save Modified Halo Wars ERA",
+
+                    FileName =
+                        $"{sourceName}_ensemble.era",
+
+                    Filter =
+                        "Halo Wars ERA (*.era)|*.era|" +
+                        "All Files (*.*)|*.*"
+                };
+
+            if (dialog.ShowDialog(this) !=
+                true)
+            {
+                return false;
+            }
+
+            string targetPath =
+                dialog.FileName;
+
+            // Extra protection against accidentally destroying
+            // the shipping archive.
+            if (string.Equals(
+                    targetPath,
+                    _currentArchive.FilePath,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBoxResult result =
+                    MessageBox.Show(
+                        this,
+
+                        "You are about to overwrite the ERA that " +
+                        "Ensemble originally opened.\n\n" +
+
+                        "A backup will be created first.\n\n" +
+
+                        "Continue?",
+
+                        "Overwrite Source ERA?",
+
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+
+                if (result !=
+                    MessageBoxResult.Yes)
+                {
+                    return false;
+                }
+            }
+
+            return SaveModifiedEraToPath(
+                targetPath,
+                showSuccessDialog: true);
+        }
+
+        private bool SaveModifiedEraToPath(
+            string targetPath,
+            bool showSuccessDialog)
+        {
+            if (_currentArchive == null ||
+                _currentScenarioChunk == null ||
+                _currentScenarioOriginalXmbData == null ||
+                ScenarioMapCanvas.Scenario == null)
+            {
+                return false;
+            }
+
+            string tempPath =
+                targetPath +
+                ".ensemble.tmp";
+
+            try
+            {
+                StatusText.Text =
+                    "Building modified scenario...";
+
+                ScenarioMap expected =
+                    ScenarioMapCanvas.Scenario;
+
+                byte[] modifiedXmb =
+                    XmbDocumentService.WriteScenario(
+                        _currentScenarioOriginalXmbData,
+                        expected);
+
+                StatusText.Text =
+                    "Rebuilding and encrypting ERA...";
+
+                byte[] modifiedEra =
+                    EraRebuildService.BuildModifiedEra(
+                        _currentArchive,
+                        _currentScenarioChunk,
+                        modifiedXmb);
+
+                // -----------------------------------------------------
+                // Write to TEMP first.
+                //
+                // We never overwrite a working ERA until the newly
+                // generated archive has passed Ensemble's verification.
+                // -----------------------------------------------------
+
+                File.WriteAllBytes(
+                    tempPath,
+                    modifiedEra);
+
+                StatusText.Text =
+                    "Verifying saved ERA...";
+
+                EraArchiveInfo verificationArchive =
+                    EraArchiveService.Open(
+                        tempPath);
+
+                if (_currentScenarioChunk.Index >=
+                    verificationArchive.Chunks.Count)
+                {
+                    throw new InvalidDataException(
+                        "Saved ERA lost the scenario chunk.");
+                }
+
+                EraChunkInfo verificationChunk =
+                    verificationArchive.Chunks[
+                        _currentScenarioChunk.Index];
+
+                byte[] verificationXmb =
+                    EraExtractionService.ExtractChunk(
+                        verificationArchive,
+                        verificationChunk);
+
+                string verificationXml =
+                    XmbDocumentService.Read(
+                        verificationXmb);
+
+                ScenarioMap verificationScenario =
+                    ScenarioParserService.Parse(
+                        verificationXml);
+
+                ValidateScenarioRoundTrip(
+                    expected,
+                    verificationScenario);
+
+                // -----------------------------------------------------
+                // New archive is now proven readable.
+                // Only now do we touch the destination.
+                // -----------------------------------------------------
+
+                CreateSaveBackupIfNeeded(
+                    targetPath);
+
+                File.Copy(
+                    tempPath,
+                    targetPath,
+                    overwrite: true);
+
+                File.Delete(
+                    tempPath);
+
+                // -----------------------------------------------------
+                // The saved ERA now becomes our new document base.
+                // Future Ctrl+S operations build from this version.
+                // -----------------------------------------------------
+
+                EraArchiveInfo savedArchive =
+                    EraArchiveService.Open(
+                        targetPath);
+
+                EraChunkInfo savedScenarioChunk =
+                    savedArchive.Chunks[
+                        _currentScenarioChunk.Index];
+
+                byte[] savedScenarioXmb =
+                    EraExtractionService.ExtractChunk(
+                        savedArchive,
+                        savedScenarioChunk);
+
+                _currentArchive =
+                    savedArchive;
+
+                _currentScenarioChunk =
+                    savedScenarioChunk;
+
+                _currentScenarioOriginalXmbData =
+                    savedScenarioXmb;
+
+                _currentSavePath =
+                    targetPath;
+
+                _savedRevisionId =
+                    _currentRevisionId;
+
+                UpdateDirtyState();
+
+                ShowArchiveInformation();
+
+                StatusText.Text =
+                    $"Saved {System.IO.Path.GetFileName(targetPath)}";
+
+                if (showSuccessDialog)
+                {
+                    MessageBox.Show(
+                        this,
+
+                        "Halo Wars ERA saved successfully.\n\n" +
+                        "Ensemble rebuilt, encrypted, reopened and " +
+                        "verified the saved archive.",
+
+                        "Save Complete",
+
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    if (File.Exists(
+                            tempPath))
+                    {
+                        File.Delete(
+                            tempPath);
+                    }
+                }
+                catch
+                {
+                    // Don't mask the real save error.
+                }
+
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+
+                    "Save Failed",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+                StatusText.Text =
+                    "Save failed.";
+
+                return false;
+            }
+        }
+
+        private static void CreateSaveBackupIfNeeded(
+            string targetPath)
+        {
+            if (!File.Exists(
+                    targetPath))
+            {
+                return;
+            }
+
+            string directory =
+                System.IO.Path.GetDirectoryName(
+                    targetPath)
+                ?? string.Empty;
+
+            string name =
+                System.IO.Path.GetFileNameWithoutExtension(
+                    targetPath);
+
+            string extension =
+                System.IO.Path.GetExtension(
+                    targetPath);
+
+            string backupPath =
+                System.IO.Path.Combine(
+                    directory,
+                    $"{name}.pre_ensemble_backup{extension}");
+
+            // Preserve the FIRST version Ensemble overwrote.
+            // Do not destroy it on subsequent Ctrl+S saves.
+            if (!File.Exists(
+                    backupPath))
+            {
+                File.Copy(
+                    targetPath,
+                    backupPath,
+                    overwrite: false);
+            }
+        }
+
+        // =========================================================
+        // Exit
+        // ========================================================
 
         private void Exit_Click(
             object sender,

@@ -24,23 +24,30 @@
 
                 <Separator/>
 
-                <MenuItem x:Name="ExtractAllMenuItem"
-              Header="_Extract All..."
-              Click="ExtractAll_Click"
+                <MenuItem x:Name="SaveMenuItem"
+              Header="_Save"
+              InputGestureText="Ctrl+S"
+              Click="Save_Click"
               IsEnabled="False"/>
+
+                <MenuItem x:Name="SaveAsMenuItem"
+                          Header="Save _As..."
+                          InputGestureText="Ctrl+Shift+S"
+                          Click="SaveAs_Click"
+                          IsEnabled="False"/>
 
                 <Separator/>
 
                 <MenuItem x:Name="ExportScenarioXmbMenuItem"
-                          Header="Export Modified _SCN XMB..."
+                          Header="Export Modified SCN XMB..."
                           Click="ExportScenarioXmb_Click"
                           IsEnabled="False"/>
 
                 <Separator/>
 
-                <MenuItem x:Name="ExportModifiedEraMenuItem"
-                          Header="Export Modified _ERA..."
-                          Click="ExportModifiedEra_Click"
+                <MenuItem x:Name="ExtractAllMenuItem"
+                          Header="Extract All"
+                          Click="ExtractAll_Click"
                           IsEnabled="False"/>
 
                 <Separator/>
