@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace Ensemble.Models
+﻿namespace Ensemble.Models
 {
     public sealed class ScenarioMap
     {

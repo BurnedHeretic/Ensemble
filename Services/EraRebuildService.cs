@@ -1,8 +1,6 @@
-﻿using System;
+﻿using Ensemble.Models;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.IO;
-using Ensemble.Models;
 
 namespace Ensemble.Services
 {

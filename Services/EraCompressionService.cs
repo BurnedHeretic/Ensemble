@@ -1,5 +1,4 @@
-﻿using System;
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.IO;
 using System.IO.Compression;
 
@@ -298,7 +297,7 @@ namespace Ensemble.Services
                             offset,
                             8));
         }
-        
+
         public static byte[] CompressDeflateStream(
             ReadOnlySpan<byte> data)
         {

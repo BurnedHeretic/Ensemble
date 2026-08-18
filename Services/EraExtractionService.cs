@@ -1,7 +1,6 @@
-﻿using System;
+﻿using Ensemble.Models;
 using System.IO;
 using System.IO.Compression;
-using Ensemble.Models;
 
 namespace Ensemble.Services
 {

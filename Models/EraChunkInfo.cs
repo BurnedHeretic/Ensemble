@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Ensemble.Models
+﻿namespace Ensemble.Models
 {
     public sealed class EraChunkInfo
     {

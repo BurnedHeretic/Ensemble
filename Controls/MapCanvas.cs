@@ -1,12 +1,10 @@
-﻿using System;
-using System.Linq;
+﻿using Ensemble.Models;
+using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using System.Numerics;
-using Ensemble.Models;
 
 namespace Ensemble.Controls
 {
@@ -32,6 +30,9 @@ namespace Ensemble.Controls
 
         public event EventHandler<ScenarioItemRotatedEventArgs>?
             ItemRotated;
+
+        public event EventHandler<ScenarioSphereRadiusChangedEventArgs>?
+            SphereRadiusChanged;
 
         public MapCanvas()
         {
@@ -414,6 +415,67 @@ namespace Ensemble.Controls
                 Children.Add(
                     circle);
             }
+        }
+
+        public void ChangeSphereRadiusFromEditor(
+    ScenarioSphere sphere,
+    float newRadius)
+        {
+            if (newRadius < 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(newRadius),
+                    "Sphere radius cannot be negative.");
+            }
+
+            float oldRadius =
+                sphere.Radius;
+
+            if (MathF.Abs(
+                    oldRadius -
+                    newRadius) <
+                0.0001f)
+            {
+                return;
+            }
+
+            sphere.Radius =
+                newRadius;
+
+            _selectedItem =
+                sphere;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    sphere));
+
+            SphereRadiusChanged?.Invoke(
+                this,
+                new ScenarioSphereRadiusChangedEventArgs(
+                    sphere,
+                    oldRadius,
+                    newRadius));
+        }
+
+        public void ApplyHistorySphereRadius(
+            ScenarioSphere sphere,
+            float radius)
+        {
+            sphere.Radius =
+                radius;
+
+            _selectedItem =
+                sphere;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    sphere));
         }
 
         // =========================================================
@@ -1681,6 +1743,40 @@ namespace Ensemble.Controls
         }
 
         public Vector3 NewRight
+        {
+            get;
+        }
+    }
+
+    public sealed class ScenarioSphereRadiusChangedEventArgs :
+    EventArgs
+    {
+        public ScenarioSphereRadiusChangedEventArgs(
+            ScenarioSphere sphere,
+            float oldRadius,
+            float newRadius)
+        {
+            Sphere =
+                sphere;
+
+            OldRadius =
+                oldRadius;
+
+            NewRadius =
+                newRadius;
+        }
+
+        public ScenarioSphere Sphere
+        {
+            get;
+        }
+
+        public float OldRadius
+        {
+            get;
+        }
+
+        public float NewRadius
         {
             get;
         }

@@ -1,9 +1,7 @@
-﻿using System;
+﻿using Ensemble.Models;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using Ensemble.Models;
 
 namespace Ensemble.Services
 {
@@ -122,7 +120,7 @@ namespace Ensemble.Services
                     "The file could not be identified as a valid Halo Wars ERA archive.");
             }
 
-            List<EraChunkInfo> chunks = 
+            List<EraChunkInfo> chunks =
                 ReadChunkTable(
                     stream,
                     encrypted,

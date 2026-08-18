@@ -1,7 +1,6 @@
-﻿using System;
+﻿using Org.BouncyCastle.Crypto.Digests;
 using System.Buffers.Binary;
 using System.IO;
-using Org.BouncyCastle.Crypto.Digests;
 
 namespace Ensemble.Services
 {

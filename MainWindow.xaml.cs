@@ -1,15 +1,13 @@
-﻿using System;
-using System.Windows;
-using System.Windows.Controls;
-using System.Collections.Generic;
-using System.Numerics;
-using System.Windows.Input;
-using System.Globalization;
-using System.IO;
-using System.ComponentModel;
-using Ensemble.Models;
+﻿using Ensemble.Models;
 using Ensemble.Services;
 using Microsoft.Win32;
+using System.ComponentModel;
+using System.Globalization;
+using System.IO;
+using System.Numerics;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace Ensemble
 {
@@ -57,6 +55,9 @@ namespace Ensemble
 
             ScenarioMapCanvas.ItemRotated +=
                 ScenarioMapCanvas_ItemRotated;
+
+            ScenarioMapCanvas.SphereRadiusChanged +=
+                ScenarioMapCanvas_SphereRadiusChanged;
 
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
@@ -266,7 +267,7 @@ namespace Ensemble
             ExportScenarioXmbMenuItem.IsEnabled =
                 false;
 
-            ExtractAllMenuItem.IsEnabled = 
+            ExtractAllMenuItem.IsEnabled =
                 true;
 
             FileNameText.Text =
@@ -703,6 +704,77 @@ namespace Ensemble
             }
         }
 
+        private sealed class SphereRadiusHistoryAction :
+    IScenarioHistoryAction
+        {
+            public SphereRadiusHistoryAction(
+                ScenarioSphere sphere,
+                float oldRadius,
+                float newRadius,
+                long beforeRevisionId,
+                long afterRevisionId)
+            {
+                Sphere =
+                    sphere;
+
+                OldRadius =
+                    oldRadius;
+
+                NewRadius =
+                    newRadius;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public ScenarioSphere Sphere
+            {
+                get;
+            }
+
+            public float OldRadius
+            {
+                get;
+            }
+
+            public float NewRadius
+            {
+                get;
+            }
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+            public long AfterRevisionId
+            {
+                get;
+            }
+
+            public string Description =>
+                $"Resize {Sphere.Name}";
+
+            public void Undo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistorySphereRadius(
+                    Sphere,
+                    OldRadius);
+            }
+
+            public void Redo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistorySphereRadius(
+                    Sphere,
+                    NewRadius);
+            }
+        }
+
         private void ArchiveFile_MouseDoubleClick(
             object sender,
             System.Windows.Input.MouseButtonEventArgs e)
@@ -821,8 +893,8 @@ namespace Ensemble
         }
 
         private static void ValidateScenarioRoundTrip(
-    ScenarioMap expected,
-    ScenarioMap actual)
+            ScenarioMap expected,
+            ScenarioMap actual)
         {
             if (expected.Objects.Count !=
                 actual.Objects.Count)
@@ -911,6 +983,18 @@ namespace Ensemble
                     expectedSphere.Position,
                     actualSphere.Position,
                     $"Design Sphere {expectedSphere.Id} Position");
+
+                if (MathF.Abs(
+                    expectedSphere.Radius -
+                    actualSphere.Radius) >
+                    0.0001f)
+                {
+                    throw new InvalidDataException(
+                        $"Design Sphere {expectedSphere.Id} Radius " +
+                        $"failed round-trip verification.\n\n" +
+                        $"Expected: {expectedSphere.Radius}\n" +
+                        $"Actual:   {actualSphere.Radius}");
+                }
             }
         }
 
@@ -1109,6 +1193,11 @@ namespace Ensemble
 
             bool editable;
 
+            SphereRadiusEditorPanel.Visibility =
+                item is ScenarioSphere
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
             switch (item)
             {
                 case ScenarioObject obj:
@@ -1140,6 +1229,11 @@ namespace Ensemble
 
                     editable =
                         true;
+
+                    SphereRadiusTextBox.Text =
+                        sphere.Radius.ToString(
+                            "G9",
+                            CultureInfo.InvariantCulture);
 
                     break;
 
@@ -1487,6 +1581,10 @@ namespace Ensemble
         private void ShowScenarioObject(
             ScenarioObject obj)
         {
+
+            SphereRadiusEditorPanel.Visibility =
+                Visibility.Collapsed;
+
             RightPanelTitle.Text =
                 "OBJECT PROPERTIES";
 
@@ -1606,11 +1704,23 @@ namespace Ensemble
                 $"Camera Zoom: {start.CameraZoom:0.####}";
         }
 
+        // =========================================================
+        // Design Sphere
+        // =========================================================
+
         private void ShowScenarioSphere(
             ScenarioSphere sphere)
         {
             RightPanelTitle.Text =
                 "DESIGN SPHERE";
+
+            SphereRadiusEditorPanel.Visibility =
+                Visibility.Visible;
+
+            SphereRadiusTextBox.Text =
+                sphere.Radius.ToString(
+                    "G9",
+                    CultureInfo.InvariantCulture);
 
             SelectedNameText.Text =
                 sphere.Name;
@@ -1638,9 +1748,110 @@ namespace Ensemble
                 $"Radius: {sphere.Radius:0.####}";
         }
 
+        private void ApplySphereRadius_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ApplyEditedSphereRadius();
+        }
+
+        private void SphereRadiusTextBox_KeyDown(
+            object sender,
+            KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter)
+                return;
+
+            ApplyEditedSphereRadius();
+
+            e.Handled =
+                true;
+        }
+
+        private void ApplyEditedSphereRadius()
+        {
+            if (_selectedScenarioItem
+                is not ScenarioSphere sphere)
+            {
+                return;
+            }
+
+            if (!TryReadEditorFloat(
+                    SphereRadiusTextBox.Text,
+                    out float radius))
+            {
+                MessageBox.Show(
+                    this,
+                    $"'{SphereRadiusTextBox.Text}' is not a valid radius.",
+                    "Invalid Radius",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                SphereRadiusTextBox.Focus();
+                SphereRadiusTextBox.SelectAll();
+
+                return;
+            }
+
+            if (radius < 0)
+            {
+                MessageBox.Show(
+                    this,
+                    "Sphere radius cannot be negative.",
+                    "Invalid Radius",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return;
+            }
+
+            ScenarioMapCanvas.ChangeSphereRadiusFromEditor(
+                sphere,
+                radius);
+        }
+
+        private void ScenarioMapCanvas_SphereRadiusChanged(
+            object? sender,
+            Ensemble.Controls.ScenarioSphereRadiusChangedEventArgs e)
+        {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
+            _undoStack.Push(
+                new SphereRadiusHistoryAction(
+                    e.Sphere,
+                    e.OldRadius,
+                    e.NewRadius,
+                    beforeRevision,
+                    afterRevision));
+
+            _redoStack.Clear();
+
+            _currentRevisionId =
+                afterRevision;
+
+            UpdateUndoRedoUi();
+            UpdateDirtyState();
+
+            StatusText.Text =
+                $"Changed {e.Sphere.Name} radius | " +
+                $"{e.OldRadius:0.##} → {e.NewRadius:0.##}";
+        }
+
+        // ========================================================
+        // Design Path
+        // ========================================================
+
         private void ShowScenarioPath(
             ScenarioPath path)
         {
+
+            SphereRadiusEditorPanel.Visibility =
+                Visibility.Collapsed;
+
             RightPanelTitle.Text =
                 "DESIGN PATH";
 
@@ -1679,6 +1890,10 @@ namespace Ensemble
 
         private void ShowArchiveInformation()
         {
+
+            SphereRadiusEditorPanel.Visibility =
+                Visibility.Collapsed;
+
             RightPanelTitle.Text =
                 "ARCHIVE INFORMATION";
 

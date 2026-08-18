@@ -1,10 +1,8 @@
-﻿using System;
+﻿using Ensemble.Models;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
-using Ensemble.Models;
 
 namespace Ensemble.Services
 {
@@ -680,6 +678,14 @@ namespace Ensemble.Services
                         packedData,
                         variantData,
                         bigEndian);
+
+                    PatchFloatAttribute(
+                        node,
+                        "Radius",
+                        sphere.Radius,
+                        packedData,
+                        variantData,
+                        bigEndian);
                 }
             }
         }
@@ -807,12 +813,12 @@ namespace Ensemble.Services
         }
 
         private static void PatchVectorAttribute(
-    XmxNode node,
-    string attributeName,
-    System.Numerics.Vector3 value,
-    byte[] packedData,
-    PackedArray variantData,
-    bool bigEndian)
+            XmxNode node,
+            string attributeName,
+            System.Numerics.Vector3 value,
+            byte[] packedData,
+            PackedArray variantData,
+            bool bigEndian)
         {
             for (uint i = 0;
                  i < node.Attributes.Count;
@@ -917,11 +923,351 @@ namespace Ensemble.Services
                 $"Scenario node does not contain attribute '{attributeName}'.");
         }
 
-        private static void WriteSingle(
-    byte[] data,
-    int offset,
+        private static void PatchFloatAttribute(
+    XmxNode node,
+    string attributeName,
     float value,
+    byte[] packedData,
+    PackedArray variantData,
     bool bigEndian)
+        {
+            for (uint i = 0;
+                 i < node.Attributes.Count;
+                 i++)
+            {
+                int p =
+                    checked(
+                        (int)(
+                            node.Attributes.Offset +
+                            ((ulong)i *
+                             XmxAttributeSize)));
+
+                uint nameVariant =
+                    ReadUInt32(
+                        packedData,
+                        p,
+                        bigEndian);
+
+                string name =
+                    DecodeVariant(
+                        nameVariant,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
+                if (!string.Equals(
+                        name,
+                        attributeName,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                int valueVariantOffset =
+                    p + 4;
+
+                uint variant =
+                    ReadUInt32(
+                        packedData,
+                        valueVariantOffset,
+                        bigEndian);
+
+                uint typeBits =
+                    variant >>
+                    24;
+
+                int type =
+                    (int)(
+                        typeBits &
+                        0x0F);
+
+                bool isOffset =
+                    (variant &
+                     0x80000000u) != 0;
+
+                uint payload =
+                    variant &
+                    0x00FFFFFFu;
+
+                // =====================================================
+                // Type 2:
+                // Full 32-bit Single stored indirectly in variant pool.
+                // =====================================================
+
+                if (type == 2 &&
+                    isOffset)
+                {
+                    int dataOffset =
+                        GetVariantOffset(
+                            variantData,
+                            payload,
+                            4);
+
+                    WriteSingle(
+                        packedData,
+                        dataOffset,
+                        value,
+                        bigEndian);
+
+                    return;
+                }
+
+                // =====================================================
+                // Type 3:
+                // Int24 stored directly inside the 32-bit variant.
+                //
+                // Blood Gulch design sphere Radius values use this.
+                //
+                // If the new value is still a whole number, preserve
+                // the original Int24 representation exactly.
+                // =====================================================
+
+                if (type == 3 &&
+                    IsWholeNumber(value) &&
+                    value >= 0 &&
+                    value <= 0x007FFFFF)
+                {
+                    uint integerValue =
+                        checked(
+                            (uint)value);
+
+                    uint newVariant =
+                        (variant &
+                         0xFF000000u) |
+                        (integerValue &
+                         0x007FFFFFu);
+
+                    WriteVariantUInt32(
+                        packedData,
+                        valueVariantOffset,
+                        newVariant,
+                        bigEndian);
+
+                    return;
+                }
+
+                // =====================================================
+                // Inline numeric value which can no longer be preserved
+                // using its original representation.
+                //
+                // Convert it to XMX Single24.
+                //
+                // Type 1 = Single24 (S1E6M17)
+                //
+                // This changes only this four-byte variant. No memory
+                // pool resize or XMX structural rebuild is required.
+                // =====================================================
+
+                if (type == 1 ||
+                    type == 3 ||
+                    type == 5)
+                {
+                    uint single24 =
+                        EncodeSingle24(
+                            value);
+
+                    uint newVariant =
+                        (1u << 24) |
+                        (single24 &
+                         0x00FFFFFFu);
+
+                    WriteVariantUInt32(
+                        packedData,
+                        valueVariantOffset,
+                        newVariant,
+                        bigEndian);
+
+                    return;
+                }
+
+                throw new InvalidDataException(
+                    $"Scenario attribute '{attributeName}' " +
+                    $"uses unsupported XMX variant type {type}. " +
+                    "Ensemble will not modify it unsafely.");
+            }
+
+            throw new InvalidDataException(
+                $"Scenario node does not contain attribute " +
+                $"'{attributeName}'.");
+        }
+
+        private static bool IsWholeNumber(
+            float value)
+        {
+            return MathF.Abs(
+                value -
+                MathF.Round(value)) <
+                0.000001f;
+        }
+
+        private static uint EncodeSingle24(
+            float value)
+        {
+            if (float.IsNaN(value) ||
+                float.IsInfinity(value))
+            {
+                throw new InvalidDataException(
+                    "XMX Single24 cannot encode NaN or Infinity.");
+            }
+
+            // KSoft Single24:
+            //
+            // 1 sign bit
+            // 6 exponent bits
+            // 17 mantissa bits
+            //
+            // S1E6M17
+
+            const int single32MantissaBits =
+                23;
+
+            const uint single32MantissaMask =
+                0x007FFFFFu;
+
+            const int single32ExponentShift =
+                23;
+
+            const uint single32ExponentMask =
+                0x7F800000u;
+
+            const uint single32SignMask =
+                0x80000000u;
+
+
+            const int single24MantissaBits =
+                17;
+
+            const uint single24MantissaMask =
+                0x0001FFFFu;
+
+            const int single24ExponentShift =
+                17;
+
+            const uint single24ExponentMask =
+                0x007E0000u;
+
+            const uint single24SignBit =
+                0x00800000u;
+
+
+            const int single32ExponentBias =
+                127;
+
+            const int single24ExponentBias =
+                31;
+
+            const int exponentBiasDifference =
+                single32ExponentBias -
+                single24ExponentBias;
+
+            const int mantissaBitDifference =
+                single32MantissaBits -
+                single24MantissaBits;
+
+
+            uint bits =
+                BitConverter.SingleToUInt32Bits(
+                    value);
+
+            uint mantissa =
+                bits &
+                single32MantissaMask;
+
+            uint exponent =
+                (bits &
+                 single32ExponentMask) >>
+                single32ExponentShift;
+
+            bool negative =
+                (bits &
+                 single32SignMask) != 0;
+
+
+            // Match KSoft's special zero/subnormal handling.
+            if (exponent == 0)
+            {
+                return single24SignBit;
+            }
+
+
+            int compressedExponent =
+                checked(
+                    (int)exponent -
+                    exponentBiasDifference);
+
+            if (compressedExponent <= 0 ||
+                compressedExponent >= 64)
+            {
+                throw new InvalidDataException(
+                    $"Value {value} cannot be represented " +
+                    "safely as an XMX Single24.");
+            }
+
+
+            uint compressedMantissa =
+                mantissa >>
+                mantissaBitDifference;
+
+            compressedMantissa &=
+                single24MantissaMask;
+
+
+            uint result =
+                ((uint)compressedExponent <<
+                 single24ExponentShift) &
+                single24ExponentMask;
+
+            result |=
+                compressedMantissa;
+
+            if (negative)
+            {
+                result |=
+                    single24SignBit;
+            }
+
+
+            return
+                result &
+                0x00FFFFFFu;
+        }
+
+        private static void WriteVariantUInt32(
+            byte[] data,
+            int offset,
+            uint value,
+            bool bigEndian)
+        {
+            EnsureRange(
+                data,
+                offset,
+                4);
+
+            if (bigEndian)
+            {
+                BinaryPrimitives
+                    .WriteUInt32BigEndian(
+                        data.AsSpan(
+                            offset,
+                            4),
+                        value);
+            }
+            else
+            {
+                BinaryPrimitives
+                    .WriteUInt32LittleEndian(
+                        data.AsSpan(
+                            offset,
+                            4),
+                        value);
+            }
+        }
+
+        private static void WriteSingle(
+            byte[] data,
+            int offset,
+            float value,
+            bool bigEndian)
         {
             EnsureRange(
                 data,

@@ -72,18 +72,18 @@
               IsEnabled="False"/>
 
             </MenuItem>
-            
+
             <MenuItem Header="_View"/>
             <MenuItem Header="_Map"/>
             <MenuItem Header="_Terrain"/>
-            
+
             <MenuItem Header="_Tools">
 
                 <MenuItem Header="Patch Halo Wars EXE for Modded ERAs..."
               Click="PatchHaloWarsExe_Click"/>
 
             </MenuItem>
-            
+
             <MenuItem Header="_Help"/>
 
         </Menu>
@@ -338,8 +338,8 @@
                                 <Separator Margin="0,2,0,10"/>
 
                                 <TextBlock Text="Edit Position"
-           Foreground="#AAAAAA"
-           Margin="0,0,0,6"/>
+                                           Foreground="#AAAAAA"
+                                           Margin="0,0,0,6"/>
 
                                 <Grid Margin="0,0,0,8">
 
@@ -510,9 +510,50 @@
                                TextWrapping="Wrap"
                                Margin="0,2,0,20"/>
 
+                                <StackPanel x:Name="SphereRadiusEditorPanel"
+                                            Visibility="Collapsed">
+
+                                    <Separator Margin="0,4,0,10"/>
+
+                                    <TextBlock Text="Edit Radius"
+                                               Foreground="#AAAAAA"
+                                               Margin="0,0,0,6"/>
+
+                                    <Grid Margin="0,0,0,8">
+
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="50"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0"
+                                                   Text="Radius"
+                                                   Foreground="#AAAAAA"
+                                                   VerticalAlignment="Center"/>
+
+                                        <TextBox x:Name="SphereRadiusTextBox"
+                                                 Grid.Column="1"
+                                                 Height="25"
+                                                 Padding="4,2"
+                                                 Background="#1E1E1E"
+                                                 Foreground="White"
+                                                 BorderBrush="#555555"
+                                                 FontFamily="Consolas"
+                                                 KeyDown="SphereRadiusTextBox_KeyDown"/>
+
+                                    </Grid>
+
+                                    <Button Content="Apply Radius"
+                                            Height="30"
+                                            Click="ApplySphereRadius_Click"/>
+
+                                </StackPanel>
+
+                                <Separator Margin="0,4,0,10"/>
+
                                 <Button Content="Show Archive Information"
-                            Height="30"
-                            Click="ShowArchiveInfo_Click"/>
+                                        Height="30"
+                                        Click="ShowArchiveInfo_Click"/>
 
                             </StackPanel>
 
