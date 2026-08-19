@@ -73,17 +73,23 @@
 
                 <Separator/>
 
+                <MenuItem x:Name="AddObjectMenuItem"
+          Header="_Add Object..."
+          InputGestureText="Insert"
+          Click="AddObject_Click"
+          IsEnabled="False"/>
+
                 <MenuItem x:Name="DuplicateObjectMenuItem"
-                          Header="_Duplicate Object"
-                          InputGestureText="Ctrl+D"
-                          Click="DuplicateObject_Click"
-                          IsEnabled="False"/>
+          Header="_Duplicate Object"
+          InputGestureText="Ctrl+D"
+          Click="DuplicateObject_Click"
+          IsEnabled="False"/>
 
                 <MenuItem x:Name="DeleteObjectMenuItem"
-                          Header="_Delete Object"
-                          InputGestureText="Delete"
-                          Click="DeleteObject_Click"
-                          IsEnabled="False"/>
+          Header="_Delete Object"
+          InputGestureText="Delete"
+          Click="DeleteObject_Click"
+          IsEnabled="False"/>
 
             </MenuItem>
 

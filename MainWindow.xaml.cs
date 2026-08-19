@@ -153,6 +153,22 @@ namespace Ensemble
                 return;
             }
 
+            //Add Object
+            if (e.Key ==
+                Key.Insert &&
+                AddObjectMenuItem.IsEnabled &&
+                Keyboard.FocusedElement
+                is not TextBox)
+            {
+                OpenAddObjectDialog();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            //Duplicate Object
             if (Keyboard.Modifiers ==
                 ModifierKeys.Control &&
                 e.Key == 
@@ -166,6 +182,7 @@ namespace Ensemble
                 return;
             }
 
+            // Delete Object
             if (e.Key ==
                 Key.Delete &&
                 _selectedScenarioItem
@@ -273,6 +290,9 @@ namespace Ensemble
                 false;
 
             SaveAsMenuItem.IsEnabled =
+                false;
+
+            AddObjectMenuItem.IsEnabled =
                 false;
 
             _undoStack.Clear();
@@ -467,8 +487,8 @@ namespace Ensemble
         }
 
         private void Undo_Click(
-    object sender,
-    RoutedEventArgs e)
+            object sender,
+            RoutedEventArgs e)
         {
             UndoLastMove();
         }
@@ -1016,6 +1036,9 @@ namespace Ensemble
                     SaveAsMenuItem.IsEnabled =
                         true;
 
+                    AddObjectMenuItem.IsEnabled =
+                        true;
+
                     ScenarioMap map =
                         ScenarioParserService.Parse(
                             xmlText);
@@ -1341,9 +1364,6 @@ namespace Ensemble
             Ensemble.Controls.ScenarioSelectionChangedEventArgs e)
         {
 
-            DuplicateObjectMenuItem.IsEnabled =
-                e.SelectedItem is ScenarioObject;
-
             bool objectSelected =
                 e.SelectedItem is ScenarioObject;
 
@@ -1436,8 +1456,9 @@ namespace Ensemble
             UpdateDirtyState();
 
             StatusText.Text =
-                $"Duplicated {e.Object.EditorName} | " +
-                $"New ID: {e.Object.Id}";
+                $"Added {e.Object.Type} | " +
+                $"New ID: {e.Object.Id} | " +
+                $"{ScenarioMapCanvas.Scenario?.Objects.Count ?? 0} objects";
         }
 
         private sealed class AddObjectHistoryAction :
@@ -1474,7 +1495,7 @@ namespace Ensemble
             }
 
             public string Description =>
-                $"Duplicate {Object.EditorName}";
+                $"Add {Object.Type}";
 
             public void Undo(
                 Ensemble.Controls.MapCanvas canvas)
@@ -3299,6 +3320,154 @@ namespace Ensemble
                     backupPath,
                     overwrite: false);
             }
+        }
+
+        // =========================================================
+        // Add Object
+        // =========================================================
+
+        private void AddObject_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            OpenAddObjectDialog();
+        }
+
+        private void OpenAddObjectDialog()
+        {
+            if (ScenarioMapCanvas.Scenario
+                is not ScenarioMap map)
+            {
+                return;
+            }
+
+            if (map.Objects.Count ==
+                0)
+            {
+                MessageBox.Show(
+                    this,
+                    "This scenario does not contain any existing " +
+                    "objects that can be used as templates.",
+                    "No Object Templates",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                return;
+            }
+
+            AddObjectWindow dialog =
+                new AddObjectWindow(
+                    map.Objects)
+                {
+                    Owner =
+                        this
+                };
+
+            if (dialog.ShowDialog() !=
+                true)
+            {
+                return;
+            }
+
+            if (dialog.SelectedTemplate
+                is not ScenarioObject source)
+            {
+                return;
+            }
+
+            AddObjectFromTemplate(
+                source);
+        }
+
+        private void AddObjectFromTemplate(
+            ScenarioObject source)
+        {
+            if (ScenarioMapCanvas.Scenario
+                is not ScenarioMap map)
+            {
+                return;
+            }
+
+            int newId =
+                ++map.MaxKnownId;
+
+            // Structural XMX must always ultimately clone an
+            // original persisted source node.
+            int templateId =
+                source.IsNewObject
+                    ? source.SourceObjectId
+                    : source.Id;
+
+            float centreX =
+                map.MinX +
+                ((map.MaxX -
+                  map.MinX) /
+                 2.0f);
+
+            float centreZ =
+                map.MinZ +
+                ((map.MaxZ -
+                  map.MinZ) /
+                 2.0f);
+
+            ScenarioObject added =
+                new ScenarioObject
+                {
+                    Id =
+                        newId,
+
+                    IsNewObject =
+                        true,
+
+                    SourceObjectId =
+                        templateId,
+
+                    IsSquad =
+                        source.IsSquad,
+
+                    Player =
+                        source.Player,
+
+                    TintValue =
+                        source.TintValue,
+
+                    EditorName =
+                        source.EditorName,
+
+                    Type =
+                        source.Type,
+
+                    // Preserve the template's Y value because we
+                    // do not yet sample actual terrain height.
+                    Position =
+                        new Vector3(
+                            centreX,
+                            source.Position.Y,
+                            centreZ),
+
+                    Forward =
+                        source.Forward,
+
+                    Right =
+                        source.Right,
+
+                    Group =
+                        source.Group,
+
+                    VisualVariationIndex =
+                        source.VisualVariationIndex
+                };
+
+            foreach (string flag
+                     in source.Flags)
+            {
+                added.Flags.Add(
+                    flag);
+            }
+
+            ScenarioMapCanvas
+                .AddScenarioObjectFromEditor(
+                    added);
         }
 
         // =========================================================
