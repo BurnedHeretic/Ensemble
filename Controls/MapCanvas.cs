@@ -40,6 +40,9 @@ namespace Ensemble.Controls
         public event EventHandler<ScenarioObjectAddedEventArgs>?
             ObjectAdded;
 
+        public event EventHandler<ScenarioObjectDeletedEventArgs>?
+            ObjectDeleted;
+
         public MapCanvas()
         {
             Background =
@@ -735,6 +738,121 @@ namespace Ensemble.Controls
             Children.Add(
                 marker);
         }
+
+        // =========================================================
+        // DELETED OBJECTS
+        // =========================================================
+
+        public void DeleteScenarioObjectFromEditor(
+            ScenarioObject obj)
+        {
+            if (_map == null)
+                return;
+
+            if (!_map.Objects.Contains(
+                    obj))
+            {
+                return;
+            }
+
+            bool wasNewObject =
+                obj.IsNewObject;
+
+            _map.Objects.Remove(
+                obj);
+
+            // Existing XMX object:
+            // remember that the structural writer must remove it.
+            //
+            // New unsaved duplicate:
+            // it never existed in the base XMX, so simply removing it
+            // from ScenarioMap is enough.
+            if (!wasNewObject)
+            {
+                _map.DeletedObjectIds.Add(
+                    obj.Id);
+            }
+
+            _selectedItem =
+                null;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    null));
+
+            ObjectDeleted?.Invoke(
+                this,
+                new ScenarioObjectDeletedEventArgs(
+                    obj,
+                    wasNewObject));
+        }
+
+        public void ApplyHistoryRestoreObject(
+            ScenarioObject obj,
+            bool wasNewObject)
+        {
+            if (_map == null)
+                return;
+
+            if (!_map.Objects.Contains(
+                    obj))
+            {
+                _map.Objects.Add(
+                    obj);
+            }
+
+            if (!wasNewObject)
+            {
+                _map.DeletedObjectIds.Remove(
+                    obj.Id);
+            }
+
+            _selectedItem =
+                obj;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    obj));
+        }
+
+        public void ApplyHistoryDeleteObject(
+            ScenarioObject obj,
+            bool wasNewObject)
+        {
+            if (_map == null)
+                return;
+
+            _map.Objects.Remove(
+                obj);
+
+            if (!wasNewObject)
+            {
+                _map.DeletedObjectIds.Add(
+                    obj.Id);
+            }
+
+            if (ReferenceEquals(
+                    _selectedItem,
+                    obj))
+            {
+                _selectedItem =
+                    null;
+            }
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    null));
+        }
+
 
         // =========================================================
         // TITLE / LEGEND
@@ -2004,6 +2122,31 @@ namespace Ensemble.Controls
         public int NewGroup { get; }
 
         public int NewVisualVariationIndex { get; }
+    }
+
+    public sealed class ScenarioObjectDeletedEventArgs :
+    EventArgs
+    {
+        public ScenarioObjectDeletedEventArgs(
+            ScenarioObject obj,
+            bool wasNewObject)
+        {
+            Object =
+                obj;
+
+            WasNewObject =
+                wasNewObject;
+        }
+
+        public ScenarioObject Object
+        {
+            get;
+        }
+
+        public bool WasNewObject
+        {
+            get;
+        }
     }
 
 }

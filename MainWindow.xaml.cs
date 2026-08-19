@@ -65,6 +65,9 @@ namespace Ensemble
             ScenarioMapCanvas.ObjectAdded +=
                 ScenarioMapCanvas_ObjectAdded;
 
+            ScenarioMapCanvas.ObjectDeleted +=
+                ScenarioMapCanvas_ObjectDeleted;
+
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
 
@@ -156,6 +159,21 @@ namespace Ensemble
                 Key.D)
             {
                 DuplicateSelectedObject();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            if (e.Key ==
+                Key.Delete &&
+                _selectedScenarioItem
+                is ScenarioObject &&
+                Keyboard.FocusedElement
+                is not TextBox)
+            {
+                DeleteSelectedObject();
 
                 e.Handled =
                     true;
@@ -537,6 +555,10 @@ namespace Ensemble
                     : "_Redo";
         }
 
+        //-----------------------------------------------------
+        // Scenario History Actions
+        //-----------------------------------------------------
+
         private interface IScenarioHistoryAction
         {
             string Description
@@ -724,7 +746,7 @@ namespace Ensemble
         }
 
         private sealed class SphereRadiusHistoryAction :
-    IScenarioHistoryAction
+            IScenarioHistoryAction
         {
             public SphereRadiusHistoryAction(
                 ScenarioSphere sphere,
@@ -795,7 +817,7 @@ namespace Ensemble
         }
 
         private sealed class ObjectPropertiesHistoryAction :
-    IScenarioHistoryAction
+            IScenarioHistoryAction
         {
             public ObjectPropertiesHistoryAction(
                 ScenarioObject obj,
@@ -875,6 +897,68 @@ namespace Ensemble
                     NewPlayer,
                     NewGroup,
                     NewVariation);
+            }
+        }
+
+        private sealed class DeleteObjectHistoryAction :
+            IScenarioHistoryAction
+        {
+            public DeleteObjectHistoryAction(
+                ScenarioObject obj,
+                bool wasNewObject,
+                long beforeRevisionId,
+                long afterRevisionId)
+            {
+                Object =
+                    obj;
+
+                WasNewObject =
+                    wasNewObject;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public ScenarioObject Object
+            {
+                get;
+            }
+
+            public bool WasNewObject
+            {
+                get;
+            }
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+            public long AfterRevisionId
+            {
+                get;
+            }
+
+            public string Description =>
+                $"Delete {Object.EditorName}";
+
+            public void Undo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryRestoreObject(
+                    Object,
+                    WasNewObject);
+            }
+
+            public void Redo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryDeleteObject(
+                    Object,
+                    WasNewObject);
             }
         }
 
@@ -1259,6 +1343,15 @@ namespace Ensemble
 
             DuplicateObjectMenuItem.IsEnabled =
                 e.SelectedItem is ScenarioObject;
+
+            bool objectSelected =
+                e.SelectedItem is ScenarioObject;
+
+            DuplicateObjectMenuItem.IsEnabled =
+                objectSelected;
+
+            DeleteObjectMenuItem.IsEnabled =
+                objectSelected;
 
             _selectedScenarioItem =
                 e.SelectedItem;
@@ -2958,6 +3051,11 @@ namespace Ensemble
                 ScenarioMap expected =
                     ScenarioMapCanvas.Scenario;
 
+                bool hadStructuralChanges =
+                    expected.Objects.Any(
+                        x =>
+                        x.IsNewObject) || expected.DeletedObjectIds.Count > 0;
+
                 byte[] modifiedXmb =
                     XmbDocumentService.WriteScenario(
                         _currentScenarioOriginalXmbData,
@@ -3062,7 +3160,7 @@ namespace Ensemble
                     savedScenarioXmb;
 
                 foreach (ScenarioObject obj
-                    in expected.Objects)
+         in expected.Objects)
                 {
                     obj.IsNewObject =
                         false;
@@ -3070,6 +3168,37 @@ namespace Ensemble
                     obj.SourceObjectId =
                         obj.Id;
                 }
+
+                expected.DeletedObjectIds.Clear();
+
+                if (hadStructuralChanges)
+                {
+                    // The new saved XMX is now the structural baseline.
+                    // Old structural undo actions refer to the previous
+                    // node topology and are therefore intentionally discarded.
+
+                    _undoStack.Clear();
+
+                    _redoStack.Clear();
+
+                    _nextRevisionId =
+                        0;
+
+                    _currentRevisionId =
+                        0;
+
+                    _savedRevisionId =
+                        0;
+
+                    UpdateUndoRedoUi();
+                }
+                else
+                {
+                    _savedRevisionId =
+                        _currentRevisionId;
+                }
+
+                UpdateDirtyState();
 
                 _currentSavePath =
                     targetPath;
@@ -3170,6 +3299,61 @@ namespace Ensemble
                     backupPath,
                     overwrite: false);
             }
+        }
+
+        // =========================================================
+        // Delete
+        // =========================================================
+
+        private void DeleteObject_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            DeleteSelectedObject();
+        }
+
+        private void DeleteSelectedObject()
+        {
+            if (_selectedScenarioItem
+                is not ScenarioObject obj)
+            {
+                return;
+            }
+
+            ScenarioMapCanvas
+                .DeleteScenarioObjectFromEditor(
+                    obj);
+        }
+
+        private void ScenarioMapCanvas_ObjectDeleted(
+            object? sender,
+            Ensemble.Controls.ScenarioObjectDeletedEventArgs e)
+        {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
+            _undoStack.Push(
+                new DeleteObjectHistoryAction(
+                    e.Object,
+                    e.WasNewObject,
+                    beforeRevision,
+                    afterRevision));
+
+            _redoStack.Clear();
+
+            _currentRevisionId =
+                afterRevision;
+
+            UpdateUndoRedoUi();
+
+            UpdateDirtyState();
+
+            StatusText.Text =
+                $"Deleted {e.Object.EditorName} | " +
+                $"ID {e.Object.Id}";
         }
 
         // =========================================================

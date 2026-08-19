@@ -79,6 +79,12 @@
                           Click="DuplicateObject_Click"
                           IsEnabled="False"/>
 
+                <MenuItem x:Name="DeleteObjectMenuItem"
+                          Header="_Delete Object"
+                          InputGestureText="Delete"
+                          Click="DeleteObject_Click"
+                          IsEnabled="False"/>
+
             </MenuItem>
 
             <MenuItem Header="_View"/>
@@ -87,7 +93,7 @@
 
             <MenuItem Header="_Tools">
 
-                <MenuItem Header="Patch Halo Wars EXE for Modded ERAs..."
+                <MenuItem Header="Patch Halo Wars EXE..."
               Click="PatchHaloWarsExe_Click"/>
 
             </MenuItem>

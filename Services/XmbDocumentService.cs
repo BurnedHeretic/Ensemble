@@ -461,14 +461,14 @@ namespace Ensemble.Services
             }
 
             bool requiresStructuralRebuild =
-    scenario.Objects.Any(
-        x =>
-            x.IsNewObject);
+                scenario.Objects.Any(
+                    x =>
+                    x.IsNewObject) || scenario.DeletedObjectIds.Count > 0;
 
             if (requiresStructuralRebuild)
             {
                 packedData =
-                    RebuildPackedXmxForNewObjects(
+                    RebuildPackedXmxForStructuralEdits(
                         packedData,
                         layout,
                         bigEndian,
@@ -777,11 +777,11 @@ namespace Ensemble.Services
             }
         }
 
-        private static byte[] RebuildPackedXmxForNewObjects(
-    byte[] originalData,
-    PackedLayout layout,
-    bool bigEndian,
-    ScenarioMap scenario)
+        private static byte[] RebuildPackedXmxForStructuralEdits(
+            byte[] originalData,
+            PackedLayout layout,
+            bool bigEndian,
+            ScenarioMap scenario)
         {
             PackedArray originalNodesArray =
                 ReadPackedArray(
@@ -1015,6 +1015,36 @@ namespace Ensemble.Services
                 objectNodeById[obj.Id] =
                     checked(
                         (int)cloneIndex);
+            }
+
+            HashSet<int> nodesToRemove =
+                new HashSet<int>();
+
+            foreach (int deletedId
+                     in scenario.DeletedObjectIds)
+            {
+                if (!objectNodeById.TryGetValue(
+                        deletedId,
+                        out int objectNodeIndex))
+                {
+                    throw new InvalidDataException(
+                        $"Cannot delete scenario object ID {deletedId}: " +
+                        "its original XMX node could not be found.");
+                }
+
+                CollectStructuralSubtreeIndices(
+                    nodes,
+                    objectNodeIndex,
+                    nodesToRemove);
+            }
+
+            if (nodesToRemove.Count >
+                0)
+            {
+                nodes =
+                    CompactStructuralNodes(
+                        nodes,
+                        nodesToRemove);
             }
 
             return BuildStructuralPackedXmx(
@@ -1424,6 +1454,188 @@ namespace Ensemble.Services
                 |
                 ((uint)newOffset &
                  0x00FFFFFFu);
+        }
+
+        private static void CollectStructuralSubtreeIndices(
+            IReadOnlyList<StructuralNode> nodes,
+            int rootIndex,
+            HashSet<int> result)
+        {
+            Stack<int> pending =
+                new Stack<int>();
+
+            pending.Push(
+                rootIndex);
+
+            while (pending.Count >
+                   0)
+            {
+                int index =
+                    pending.Pop();
+
+                if (index < 0 ||
+                    index >= nodes.Count)
+                {
+                    throw new InvalidDataException(
+                        $"Structural XMX contains invalid node {index}.");
+                }
+
+                if (!result.Add(
+                        index))
+                {
+                    continue;
+                }
+
+                foreach (uint child
+                         in nodes[index].Children)
+                {
+                    if (child >
+                        int.MaxValue)
+                    {
+                        throw new InvalidDataException(
+                            "XMX child index exceeds supported range.");
+                    }
+
+                    pending.Push(
+                        checked(
+                            (int)child));
+                }
+            }
+        }
+
+        private static List<StructuralNode>
+    CompactStructuralNodes(
+        IReadOnlyList<StructuralNode> sourceNodes,
+        HashSet<int> removedNodes)
+        {
+            int[] remap =
+                new int[
+                    sourceNodes.Count];
+
+            Array.Fill(
+                remap,
+                -1);
+
+            List<StructuralNode> result =
+                new List<StructuralNode>(
+                    sourceNodes.Count -
+                    removedNodes.Count);
+
+            // ---------------------------------------------------------
+            // First pass:
+            // assign the new node indices.
+            // ---------------------------------------------------------
+
+            for (int oldIndex = 0;
+                 oldIndex < sourceNodes.Count;
+                 oldIndex++)
+            {
+                if (removedNodes.Contains(
+                        oldIndex))
+                {
+                    continue;
+                }
+
+                remap[oldIndex] =
+                    result.Count;
+
+                result.Add(
+                    sourceNodes[oldIndex]);
+            }
+
+            // ---------------------------------------------------------
+            // Second pass:
+            // remap Parent and Children indices.
+            // ---------------------------------------------------------
+
+            for (int oldIndex = 0;
+                 oldIndex < sourceNodes.Count;
+                 oldIndex++)
+            {
+                int newIndex =
+                    remap[oldIndex];
+
+                if (newIndex <
+                    0)
+                {
+                    continue;
+                }
+
+                StructuralNode node =
+                    result[newIndex];
+
+                // Parent
+                if (node.Parent !=
+                    uint.MaxValue)
+                {
+                    int oldParent =
+                        checked(
+                            (int)node.Parent);
+
+                    if (oldParent < 0 ||
+                        oldParent >=
+                            remap.Length)
+                    {
+                        throw new InvalidDataException(
+                            "XMX node references an invalid parent.");
+                    }
+
+                    int newParent =
+                        remap[oldParent];
+
+                    if (newParent <
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "A retained XMX node has a deleted parent.");
+                    }
+
+                    node.Parent =
+                        checked(
+                            (uint)newParent);
+                }
+
+                // Children
+                List<uint> remappedChildren =
+                    new List<uint>();
+
+                foreach (uint oldChildValue
+                         in node.Children)
+                {
+                    int oldChild =
+                        checked(
+                            (int)oldChildValue);
+
+                    if (oldChild < 0 ||
+                        oldChild >=
+                            remap.Length)
+                    {
+                        throw new InvalidDataException(
+                            "XMX node references an invalid child.");
+                    }
+
+                    int newChild =
+                        remap[oldChild];
+
+                    // Child belongs to a deleted subtree.
+                    if (newChild <
+                        0)
+                    {
+                        continue;
+                    }
+
+                    remappedChildren.Add(
+                        checked(
+                            (uint)newChild));
+                }
+
+                node.Children.Clear();
+
+                node.Children.AddRange(
+                    remappedChildren);
+            }
+
+            return result;
         }
 
         private static void SetStructuralIntegerAttribute(

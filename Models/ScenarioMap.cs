@@ -1,4 +1,6 @@
-﻿namespace Ensemble.Models
+﻿using System.Collections.Generic;
+
+namespace Ensemble.Models
 {
     public sealed class ScenarioMap
     {
@@ -19,6 +21,11 @@
             get;
             set;
         }
+
+        public HashSet<int> DeletedObjectIds
+        {
+            get;
+        } = new();
 
         public List<ScenarioObject> Objects { get; } = new();
 
