@@ -173,9 +173,15 @@ namespace Ensemble.Services
                         element,
                         "ID");
 
+                string editorName =
+                    (string?)element.Attribute(
+                        "EditorName")
+                    ?? string.Empty;
+
                 ScenarioObject obj =
                     new ScenarioObject
                     {
+
                         Id =
                             ReadIntAttribute(
                                 element,

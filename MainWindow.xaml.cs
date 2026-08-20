@@ -31,6 +31,8 @@ namespace Ensemble
 
         private object? _selectedScenarioItem;
 
+        private ScenarioObject? _pendingAddTemplate;
+
         private readonly Stack<IScenarioHistoryAction>
             _undoStack = new();
 
@@ -67,6 +69,9 @@ namespace Ensemble
 
             ScenarioMapCanvas.ObjectDeleted +=
                 ScenarioMapCanvas_ObjectDeleted;
+
+            ScenarioMapCanvas.PlacementRequested +=
+                ScenarioMapCanvas_PlacementRequested;
 
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
@@ -122,6 +127,43 @@ namespace Ensemble
             object sender,
             KeyEventArgs e)
         {
+            if (Keyboard.Modifiers ==
+                ModifierKeys.Control &&
+                (e.Key ==
+                Key.D0 ||
+                e.Key ==
+                Key.NumPad0))
+            {
+                ScenarioMapCanvas.FitMapView();
+
+                StatusText.Text =
+                    "Map view reset.";
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            if (e.Key ==
+                Key.Escape &&
+                ScenarioMapCanvas.IsObjectPlacementActive)
+            {
+                ScenarioMapCanvas
+                    .CancelObjectPlacement();
+
+                _pendingAddTemplate =
+                    null;
+
+                StatusText.Text =
+                    "Object placement cancelled.";
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
             // Ctrl + Shift + S
             // Save As
             if (Keyboard.Modifiers ==
@@ -276,8 +318,7 @@ namespace Ensemble
             }
         }
 
-        private void LoadEra(
-            string filePath)
+        private void LoadEra(string filePath)
         {
             StatusText.Text =
                 "Decrypting and reading ERA...";
@@ -285,6 +326,11 @@ namespace Ensemble
             _currentArchive =
                 EraArchiveService.Open(
                     filePath);
+
+            ScenarioMapCanvas.CancelObjectPlacement();
+
+            _pendingAddTemplate =
+                null;
 
             SaveMenuItem.IsEnabled =
                 false;
@@ -841,9 +887,11 @@ namespace Ensemble
         {
             public ObjectPropertiesHistoryAction(
                 ScenarioObject obj,
+                string oldEditorName,
                 int oldPlayer,
                 int oldGroup,
                 int oldVariation,
+                string newEditorName,
                 int newPlayer,
                 int newGroup,
                 int newVariation,
@@ -853,6 +901,9 @@ namespace Ensemble
                 Object =
                     obj;
 
+                OldEditorName =
+                    oldEditorName;
+
                 OldPlayer =
                     oldPlayer;
 
@@ -861,6 +912,9 @@ namespace Ensemble
 
                 OldVariation =
                     oldVariation;
+
+                NewEditorName =
+                    newEditorName;
 
                 NewPlayer =
                     newPlayer;
@@ -880,11 +934,15 @@ namespace Ensemble
 
             public ScenarioObject Object { get; }
 
+            public string OldEditorName { get; }
+
             public int OldPlayer { get; }
 
             public int OldGroup { get; }
 
             public int OldVariation { get; }
+
+            public string NewEditorName { get; }
 
             public int NewPlayer { get; }
 
@@ -904,6 +962,7 @@ namespace Ensemble
             {
                 canvas.ApplyHistoryObjectProperties(
                     Object,
+                    OldEditorName,
                     OldPlayer,
                     OldGroup,
                     OldVariation);
@@ -914,6 +973,7 @@ namespace Ensemble
             {
                 canvas.ApplyHistoryObjectProperties(
                     Object,
+                    NewEditorName,
                     NewPlayer,
                     NewGroup,
                     NewVariation);
@@ -1122,6 +1182,18 @@ namespace Ensemble
                         x =>
                             x.Id ==
                             expectedObject.Id);
+
+                if (!string.Equals(
+                    expectedObject.EditorName,
+                    actualObject.EditorName,
+                    StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        $"Object {expectedObject.Id} EditorName " +
+                        $"failed round-trip verification.\n\n" +
+                        $"Expected: {expectedObject.EditorName}\n" +
+                        $"Actual:   {actualObject.EditorName}");
+                }
 
                 if (actualObject == null)
                 {
@@ -1998,6 +2070,9 @@ namespace Ensemble
             ObjectPropertiesEditorPanel.Visibility =
                 Visibility.Visible;
 
+            ObjectEditorNameTextBox.Text =
+                obj.EditorName;
+
             ObjectPlayerTextBox.Text =
                 obj.Player.ToString(
                     CultureInfo.InvariantCulture);
@@ -2430,15 +2505,22 @@ namespace Ensemble
 
             _undoStack.Push(
                 new ObjectPropertiesHistoryAction(
-                    e.Object,
-                    e.OldPlayer,
-                    e.OldGroup,
-                    e.OldVisualVariationIndex,
-                    e.NewPlayer,
-                    e.NewGroup,
-                    e.NewVisualVariationIndex,
-                    beforeRevision,
-                    afterRevision));
+        e.Object,
+
+        e.OldEditorName,
+
+        e.OldPlayer,
+        e.OldGroup,
+        e.OldVisualVariationIndex,
+
+        e.NewEditorName,
+
+        e.NewPlayer,
+        e.NewGroup,
+        e.NewVisualVariationIndex,
+
+        beforeRevision,
+        afterRevision));
 
             _redoStack.Clear();
 
@@ -2484,6 +2566,24 @@ namespace Ensemble
                 return;
             }
 
+            string editorName =
+                ObjectEditorNameTextBox.Text;
+
+            if (string.IsNullOrWhiteSpace(
+                editorName))
+            {
+                MessageBox.Show(
+                    this,
+                    "Editor Name cannot be empty.",
+                    "Invalid Object Property",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                ObjectEditorNameTextBox.Focus();
+
+                return;
+            }
+
             if (!int.TryParse(
                     ObjectPlayerTextBox.Text,
                     NumberStyles.Integer,
@@ -2525,6 +2625,7 @@ namespace Ensemble
 
             ScenarioMapCanvas.ChangeObjectPropertiesFromEditor(
                 obj,
+                editorName,
                 player,
                 group,
                 variation);
@@ -3073,9 +3174,17 @@ namespace Ensemble
                     ScenarioMapCanvas.Scenario;
 
                 bool hadStructuralChanges =
-                    expected.Objects.Any(
-                        x =>
-                        x.IsNewObject) || expected.DeletedObjectIds.Count > 0;
+    expected.Objects.Any(
+        x =>
+            x.IsNewObject
+            ||
+            !string.Equals(
+                x.EditorName,
+                x.OriginalEditorName,
+                StringComparison.Ordinal))
+    ||
+    expected.DeletedObjectIds.Count >
+        0;
 
                 byte[] modifiedXmb =
                     XmbDocumentService.WriteScenario(
@@ -3180,14 +3289,16 @@ namespace Ensemble
                 _currentScenarioOriginalXmbData =
                     savedScenarioXmb;
 
-                foreach (ScenarioObject obj
-         in expected.Objects)
+                foreach (ScenarioObject obj in expected.Objects)
                 {
                     obj.IsNewObject =
                         false;
 
                     obj.SourceObjectId =
                         obj.Id;
+
+                    obj.OriginalEditorName =
+                        obj.EditorName;
                 }
 
                 expected.DeletedObjectIds.Clear();
@@ -3323,6 +3434,19 @@ namespace Ensemble
         }
 
         // =========================================================
+        // View 
+        // =========================================================
+        private void FitMap_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ScenarioMapCanvas.FitMapView();
+
+            StatusText.Text =
+                "Map view reset.";
+        }
+
+        // =========================================================
         // Add Object
         // =========================================================
 
@@ -3375,12 +3499,20 @@ namespace Ensemble
                 return;
             }
 
-            AddObjectFromTemplate(
-                source);
+            _pendingAddTemplate = source;
+
+            ScenarioMapCanvas.BeginObjectPlacement(
+                source.Type);
+
+            StatusText.Text =
+                $"Click the map to place {source.Type}. " +
+                "Right-click or press Esc to cancel.";
         }
 
         private void AddObjectFromTemplate(
-            ScenarioObject source)
+            ScenarioObject source,
+            float worldX,
+            float worldZ)
         {
             if (ScenarioMapCanvas.Scenario
                 is not ScenarioMap map)
@@ -3397,18 +3529,6 @@ namespace Ensemble
                 source.IsNewObject
                     ? source.SourceObjectId
                     : source.Id;
-
-            float centreX =
-                map.MinX +
-                ((map.MaxX -
-                  map.MinX) /
-                 2.0f);
-
-            float centreZ =
-                map.MinZ +
-                ((map.MaxZ -
-                  map.MinZ) /
-                 2.0f);
 
             ScenarioObject added =
                 new ScenarioObject
@@ -3440,10 +3560,10 @@ namespace Ensemble
                     // Preserve the template's Y value because we
                     // do not yet sample actual terrain height.
                     Position =
-                        new Vector3(
-                            centreX,
-                            source.Position.Y,
-                            centreZ),
+                    new Vector3(
+                        worldX,
+                        source.Position.Y,
+                        worldZ),
 
                     Forward =
                         source.Forward,
@@ -3468,6 +3588,25 @@ namespace Ensemble
             ScenarioMapCanvas
                 .AddScenarioObjectFromEditor(
                     added);
+        }
+
+        private void ScenarioMapCanvas_PlacementRequested(
+            object? sender,
+            Ensemble.Controls.ScenarioPlacementRequestedEventArgs e)
+        {
+            if (_pendingAddTemplate
+                is not ScenarioObject source)
+            {
+                return;
+            }
+
+            _pendingAddTemplate =
+                null;
+
+            AddObjectFromTemplate(
+                source,
+                e.WorldX,
+                e.WorldZ);
         }
 
         // =========================================================

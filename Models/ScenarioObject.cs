@@ -24,6 +24,12 @@ namespace Ensemble.Models
 
         public float TintValue { get; set; }
 
+        public string OriginalEditorName
+        {
+            get;
+            set;
+        } = string.Empty;
+
         public string EditorName { get; set; } = string.Empty;
 
         public string Type { get; set; } = string.Empty;

@@ -93,7 +93,14 @@
 
             </MenuItem>
 
-            <MenuItem Header="_View"/>
+            <MenuItem Header="_View">
+
+                <MenuItem Header="_Fit Map"
+              InputGestureText="Ctrl+0"
+              Click="FitMap_Click"/>
+
+            </MenuItem>
+            
             <MenuItem Header="_Map"/>
             <MenuItem Header="_Terrain"/>
 
@@ -372,6 +379,7 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
                                     <!-- X -->
@@ -589,61 +597,88 @@
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
 
-                                        <TextBlock Grid.Row="0"
-                   Grid.Column="0"
-                   Text="Player"
-                   Foreground="#AAAAAA"
-                   VerticalAlignment="Center"/>
+                                        <!-- EDITOR NAME -->
 
-                                        <TextBox x:Name="ObjectPlayerTextBox"
-                 Grid.Row="0"
-                 Grid.Column="1"
-                 Height="25"
-                 Margin="0,2"
-                 Padding="4,2"
-                 Background="#1E1E1E"
-                 Foreground="White"
-                 BorderBrush="#555555"
-                 FontFamily="Consolas"
-                 KeyDown="ObjectPropertyTextBox_KeyDown"/>
+                                        <TextBlock Grid.Row="0"
+               Grid.Column="0"
+               Text="Editor Name"
+               Foreground="#AAAAAA"
+               VerticalAlignment="Center"/>
+
+                                        <TextBox x:Name="ObjectEditorNameTextBox"
+             Grid.Row="0"
+             Grid.Column="1"
+             Height="25"
+             Margin="0,2"
+             Padding="4,2"
+             Background="#1E1E1E"
+             Foreground="White"
+             BorderBrush="#555555"
+             FontFamily="Consolas"
+             KeyDown="ObjectPropertyTextBox_KeyDown"/>
+
+                                        <!-- PLAYER -->
 
                                         <TextBlock Grid.Row="1"
-                   Grid.Column="0"
-                   Text="Group"
-                   Foreground="#AAAAAA"
-                   VerticalAlignment="Center"/>
+               Grid.Column="0"
+               Text="Player"
+               Foreground="#AAAAAA"
+               VerticalAlignment="Center"/>
 
-                                        <TextBox x:Name="ObjectGroupTextBox"
-                 Grid.Row="1"
-                 Grid.Column="1"
-                 Height="25"
-                 Margin="0,2"
-                 Padding="4,2"
-                 Background="#1E1E1E"
-                 Foreground="White"
-                 BorderBrush="#555555"
-                 FontFamily="Consolas"
-                 KeyDown="ObjectPropertyTextBox_KeyDown"/>
+                                        <TextBox x:Name="ObjectPlayerTextBox"
+             Grid.Row="1"
+             Grid.Column="1"
+             Height="25"
+             Margin="0,2"
+             Padding="4,2"
+             Background="#1E1E1E"
+             Foreground="White"
+             BorderBrush="#555555"
+             FontFamily="Consolas"
+             KeyDown="ObjectPropertyTextBox_KeyDown"/>
+
+                                        <!-- GROUP -->
 
                                         <TextBlock Grid.Row="2"
-                   Grid.Column="0"
-                   Text="Visual Variation"
-                   Foreground="#AAAAAA"
-                   VerticalAlignment="Center"/>
+               Grid.Column="0"
+               Text="Group"
+               Foreground="#AAAAAA"
+               VerticalAlignment="Center"/>
+
+                                        <TextBox x:Name="ObjectGroupTextBox"
+             Grid.Row="2"
+             Grid.Column="1"
+             Height="25"
+             Margin="0,2"
+             Padding="4,2"
+             Background="#1E1E1E"
+             Foreground="White"
+             BorderBrush="#555555"
+             FontFamily="Consolas"
+             KeyDown="ObjectPropertyTextBox_KeyDown"/>
+
+                                        <!-- VISUAL VARIATION -->
+
+                                        <TextBlock Grid.Row="3"
+               Grid.Column="0"
+               Text="Visual Variation"
+               Foreground="#AAAAAA"
+               VerticalAlignment="Center"/>
 
                                         <TextBox x:Name="ObjectVisualVariationTextBox"
-                 Grid.Row="2"
-                 Grid.Column="1"
-                 Height="25"
-                 Margin="0,2"
-                 Padding="4,2"
-                 Background="#1E1E1E"
-                 Foreground="White"
-                 BorderBrush="#555555"
-                 FontFamily="Consolas"
-                 KeyDown="ObjectPropertyTextBox_KeyDown"/>
+             Grid.Row="3"
+             Grid.Column="1"
+             Height="25"
+             Margin="0,2"
+             Padding="4,2"
+             Background="#1E1E1E"
+             Foreground="White"
+             BorderBrush="#555555"
+             FontFamily="Consolas"
+             KeyDown="ObjectPropertyTextBox_KeyDown"/>
 
                                     </Grid>
 
@@ -652,6 +687,8 @@
             Click="ApplyObjectProperties_Click"/>
 
                                 </StackPanel>
+
+                                <Separator Margin="0,4,0,10"/>
 
                                 <StackPanel x:Name="ArchiveInfoButtonPanel"
                                             Margin="0,20,0,0">

@@ -22,6 +22,27 @@ namespace Ensemble.Controls
 
         private bool _isDragging;
 
+        private bool _isPlacementMode;
+
+        private float _viewMinX;
+        private float _viewMinZ;
+        private float _viewMaxX;
+        private float _viewMaxZ;
+
+        private bool _isPanning;
+
+        private Point _panStartMouse;
+
+        private float _panStartMinX;
+        private float _panStartMinZ;
+        private float _panStartMaxX;
+        private float _panStartMaxZ;
+
+        private string _placementLabel =
+            string.Empty;
+
+        private Vector3 _placementPreviewPosition;
+
         public event EventHandler<ScenarioSelectionChangedEventArgs>?
             SelectionChanged;
 
@@ -42,6 +63,12 @@ namespace Ensemble.Controls
 
         public event EventHandler<ScenarioObjectDeletedEventArgs>?
             ObjectDeleted;
+
+        public event EventHandler<ScenarioPlacementRequestedEventArgs>?
+            PlacementRequested;
+
+        public bool IsObjectPlacementActive =>
+            _isPlacementMode;
 
         public MapCanvas()
         {
@@ -68,6 +95,21 @@ namespace Ensemble.Controls
             // before the normal MouseUp reaches us.
             LostMouseCapture +=
                 MapCanvas_LostMouseCapture;
+
+            PreviewMouseLeftButtonDown +=
+                MapCanvas_PreviewMouseLeftButtonDown;
+
+            PreviewMouseRightButtonDown +=
+                MapCanvas_PreviewMouseRightButtonDown;
+
+            PreviewMouseWheel +=
+                MapCanvas_PreviewMouseWheel;
+
+            PreviewMouseDown +=
+                MapCanvas_PreviewMouseDownForPan;
+
+            PreviewMouseUp +=
+                MapCanvas_PreviewMouseUpForPan;
         }
 
         public ScenarioMap? Scenario
@@ -84,12 +126,34 @@ namespace Ensemble.Controls
             _selectedItem =
                 null;
 
+            FitMapView();
+
             RenderMap();
 
             SelectionChanged?.Invoke(
                 this,
                 new ScenarioSelectionChangedEventArgs(
                     null));
+        }
+
+        public void FitMapView()
+        {
+            if (_map == null)
+                return;
+
+            _viewMinX =
+                _map.MinX;
+
+            _viewMinZ =
+                _map.MinZ;
+
+            _viewMaxX =
+                _map.MaxX;
+
+            _viewMaxZ =
+                _map.MaxZ;
+
+            RenderMap();
         }
 
         protected override void OnMouseLeftButtonDown(
@@ -141,8 +205,175 @@ namespace Ensemble.Controls
                     start);
             }
 
+            DrawPlacementPreview();
             DrawMapTitle();
             DrawLegend();
+        }
+
+        private void DrawPlacementPreview()
+        {
+            if (!_isPlacementMode ||
+                _map == null)
+            {
+                return;
+            }
+
+            Point point =
+                WorldToScreen(
+                    _placementPreviewPosition.X,
+                    _placementPreviewPosition.Z);
+
+            const double size =
+                20;
+
+            Ellipse preview =
+                new Ellipse
+                {
+                    Width =
+                        size,
+
+                    Height =
+                        size,
+
+                    Stroke =
+                        Brushes.White,
+
+                    StrokeThickness =
+                        2,
+
+                    StrokeDashArray =
+                        new DoubleCollection
+                        {
+                    3,
+                    2
+                        },
+
+                    Fill =
+                        new SolidColorBrush(
+                            Color.FromArgb(
+                                35,
+                                255,
+                                255,
+                                255)),
+
+                    IsHitTestVisible =
+                        false
+                };
+
+            SetLeft(
+                preview,
+                point.X -
+                size / 2);
+
+            SetTop(
+                preview,
+                point.Y -
+                size / 2);
+
+            Children.Add(
+                preview);
+
+
+            Line horizontal =
+                new Line
+                {
+                    X1 =
+                        point.X - 14,
+
+                    X2 =
+                        point.X + 14,
+
+                    Y1 =
+                        point.Y,
+
+                    Y2 =
+                        point.Y,
+
+                    Stroke =
+                        Brushes.White,
+
+                    StrokeThickness =
+                        1,
+
+                    IsHitTestVisible =
+                        false
+                };
+
+            Line vertical =
+                new Line
+                {
+                    X1 =
+                        point.X,
+
+                    X2 =
+                        point.X,
+
+                    Y1 =
+                        point.Y - 14,
+
+                    Y2 =
+                        point.Y + 14,
+
+                    Stroke =
+                        Brushes.White,
+
+                    StrokeThickness =
+                        1,
+
+                    IsHitTestVisible =
+                        false
+                };
+
+            Children.Add(
+                horizontal);
+
+            Children.Add(
+                vertical);
+
+
+            TextBlock label =
+                new TextBlock
+                {
+                    Text =
+                        $"{_placementLabel}\n" +
+                        $"X {_placementPreviewPosition.X:0.##}  " +
+                        $"Z {_placementPreviewPosition.Z:0.##}",
+
+                    Foreground =
+                        Brushes.White,
+
+                    Background =
+                        new SolidColorBrush(
+                            Color.FromArgb(
+                                210,
+                                20,
+                                20,
+                                20)),
+
+                    Padding =
+                        new Thickness(
+                            5,
+                            3,
+                            5,
+                            3),
+
+                    FontSize =
+                        11,
+
+                    IsHitTestVisible =
+                        false
+                };
+
+            SetLeft(
+                label,
+                point.X + 18);
+
+            SetTop(
+                label,
+                point.Y + 10);
+
+            Children.Add(
+                label);
         }
 
         // =========================================================
@@ -338,15 +569,14 @@ namespace Ensemble.Controls
                 Math.Min(
                     MapWidth /
                     Math.Max(
-                        1,
-                        _map.MaxX -
-                        _map.MinX),
-
+            0.0001,
+            _viewMaxX -
+            _viewMinX),
                     MapHeight /
                     Math.Max(
-                        1,
-                        _map.MaxZ -
-                        _map.MinZ));
+            0.0001,
+            _viewMaxZ -
+            _viewMinZ));
 
             foreach (ScenarioSphere sphere
                      in _map.Spheres)
@@ -637,6 +867,326 @@ namespace Ensemble.Controls
                 _ =>
                     Brushes.White
             };
+        }
+
+        public void BeginObjectPlacement(
+            string label)
+        {
+            if (_map == null)
+                return;
+
+            _isPlacementMode =
+                true;
+
+            _placementLabel =
+                label;
+
+            Cursor =
+                Cursors.Cross;
+
+            Point mouse =
+                Mouse.GetPosition(
+                    this);
+
+            (float x, float z) =
+                ScreenToWorld(
+                    mouse);
+
+            _placementPreviewPosition =
+                new Vector3(
+                    x,
+                    0,
+                    z);
+
+            RenderMap();
+        }
+
+        public void CancelObjectPlacement()
+        {
+            if (!_isPlacementMode)
+                return;
+
+            _isPlacementMode =
+                false;
+
+            _placementLabel =
+                string.Empty;
+
+            Cursor =
+                null;
+
+            RenderMap();
+        }
+
+        // =========================================================
+        // Mouse Clicks
+        // =========================================================
+
+        private void MapCanvas_PreviewMouseLeftButtonDown(
+            object sender,
+            MouseButtonEventArgs e)
+        {
+            if (!_isPlacementMode ||
+                _map == null)
+            {
+                return;
+            }
+
+            Point mouse =
+                e.GetPosition(
+                    this);
+
+            (float worldX, float worldZ) =
+                ScreenToWorld(
+                    mouse);
+
+            _isPlacementMode =
+                false;
+
+            Cursor =
+                null;
+
+            string label =
+                _placementLabel;
+
+            _placementLabel =
+                string.Empty;
+
+            PlacementRequested?.Invoke(
+                this,
+                new ScenarioPlacementRequestedEventArgs(
+                    worldX,
+                    worldZ));
+
+            e.Handled =
+                true;
+        }
+
+        private void MapCanvas_PreviewMouseRightButtonDown(
+            object sender,
+            MouseButtonEventArgs e)
+        {
+            if (!_isPlacementMode)
+                return;
+
+            CancelObjectPlacement();
+
+            e.Handled =
+                true;
+        }
+
+        private void MapCanvas_PreviewMouseWheel(
+            object sender,
+            MouseWheelEventArgs e)
+        {
+            if (_map == null)
+                return;
+
+            Point mouse =
+                e.GetPosition(
+                    this);
+
+            // Ignore wheel events outside the actual map viewport.
+            if (mouse.X < MarginSize ||
+                mouse.X > MarginSize + MapWidth ||
+                mouse.Y < MarginSize ||
+                mouse.Y > MarginSize + MapHeight)
+            {
+                return;
+            }
+
+            double normalizedX =
+                (mouse.X -
+                 MarginSize) /
+                MapWidth;
+
+            double normalizedScreenY =
+                (mouse.Y -
+                 MarginSize) /
+                MapHeight;
+
+            double normalizedZ =
+                1.0 -
+                normalizedScreenY;
+
+            float worldUnderMouseX =
+                (float)(
+                    _viewMinX +
+                    normalizedX *
+                    (_viewMaxX -
+                     _viewMinX));
+
+            float worldUnderMouseZ =
+                (float)(
+                    _viewMinZ +
+                    normalizedZ *
+                    (_viewMaxZ -
+                     _viewMinZ));
+
+            float currentWidth =
+                _viewMaxX -
+                _viewMinX;
+
+            float currentDepth =
+                _viewMaxZ -
+                _viewMinZ;
+
+            // Wheel up = zoom in.
+            float factor =
+                e.Delta > 0
+                    ? 0.80f
+                    : 1.25f;
+
+            float mapWidth =
+                _map.MaxX -
+                _map.MinX;
+
+            float mapDepth =
+                _map.MaxZ -
+                _map.MinZ;
+
+            // Maximum zoom:
+            // visible region can't become smaller than about
+            // 1/32 of the full map.
+            float minimumWidth =
+                Math.Max(
+                    4,
+                    mapWidth /
+                    32.0f);
+
+            float minimumDepth =
+                Math.Max(
+                    4,
+                    mapDepth /
+                    32.0f);
+
+            // Maximum zoom-out:
+            // don't go farther than 2x the map dimensions.
+            float maximumWidth =
+                mapWidth *
+                2.0f;
+
+            float maximumDepth =
+                mapDepth *
+                2.0f;
+
+            float newWidth =
+                Math.Clamp(
+                    currentWidth *
+                    factor,
+                    minimumWidth,
+                    maximumWidth);
+
+            float newDepth =
+                Math.Clamp(
+                    currentDepth *
+                    factor,
+                    minimumDepth,
+                    maximumDepth);
+
+            // Keep the world position underneath the cursor
+            // stationary while zooming.
+            _viewMinX =
+                worldUnderMouseX -
+                newWidth *
+                (float)normalizedX;
+
+            _viewMaxX =
+                _viewMinX +
+                newWidth;
+
+            _viewMinZ =
+                worldUnderMouseZ -
+                newDepth *
+                (float)normalizedZ;
+
+            _viewMaxZ =
+                _viewMinZ +
+                newDepth;
+
+            RenderMap();
+
+            e.Handled =
+                true;
+        }
+
+        private void MapCanvas_PreviewMouseDownForPan(
+            object sender,
+            MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton !=
+                MouseButton.Middle)
+            {
+                return;
+            }
+
+            if (_map == null)
+                return;
+
+            _isPanning =
+                true;
+
+            _panStartMouse =
+                e.GetPosition(
+                    this);
+
+            _panStartMinX =
+                _viewMinX;
+
+            _panStartMinZ =
+                _viewMinZ;
+
+            _panStartMaxX =
+                _viewMaxX;
+
+            _panStartMaxZ =
+                _viewMaxZ;
+
+            Cursor =
+                Cursors.Hand;
+
+            CaptureMouse();
+
+            e.Handled =
+                true;
+        }
+
+        private void MapCanvas_PreviewMouseUpForPan(
+            object sender,
+            MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton !=
+                MouseButton.Middle)
+            {
+                return;
+            }
+
+            if (!_isPanning)
+                return;
+
+            FinishPan();
+
+            e.Handled =
+                true;
+        }
+
+        private void FinishPan()
+        {
+            if (!_isPanning)
+                return;
+
+            _isPanning =
+                false;
+
+            Cursor =
+                _isPlacementMode
+                    ? Cursors.Cross
+                    : null;
+
+            if (IsMouseCaptured)
+            {
+                ReleaseMouseCapture();
+            }
         }
 
         // =========================================================
@@ -1151,8 +1701,7 @@ namespace Ensemble.Controls
                     item));
         }
 
-        private static bool CanDragItem(
-    object item)
+        private static bool CanDragItem(object item)
         {
             return
                 item is ScenarioObject ||
@@ -1188,8 +1737,106 @@ namespace Ensemble.Controls
         protected override void OnMouseMove(
             MouseEventArgs e)
         {
-            base.OnMouseMove(
-                e);
+            base.OnMouseMove(e);
+
+            // =====================================================
+            // VIEW PANNING
+            // =====================================================
+
+            if (_isPanning &&
+                _map != null)
+            {
+                if (e.MiddleButton !=
+                    MouseButtonState.Pressed)
+                {
+                    FinishPan();
+
+                    return;
+                }
+
+                Point mouse =
+                    e.GetPosition(
+                        this);
+
+                double screenDeltaX =
+                    mouse.X -
+                    _panStartMouse.X;
+
+                double screenDeltaY =
+                    mouse.Y -
+                    _panStartMouse.Y;
+
+                float worldWidth =
+                    _panStartMaxX -
+                    _panStartMinX;
+
+                float worldDepth =
+                    _panStartMaxZ -
+                    _panStartMinZ;
+
+                float worldDeltaX =
+                    (float)(
+                        screenDeltaX /
+                        MapWidth *
+                        worldWidth);
+
+                // Screen Y increases downward,
+                // world Z increases upward.
+                float worldDeltaZ =
+                    (float)(
+                        -screenDeltaY /
+                        MapHeight *
+                        worldDepth);
+
+                _viewMinX =
+                    _panStartMinX -
+                    worldDeltaX;
+
+                _viewMaxX =
+                    _panStartMaxX -
+                    worldDeltaX;
+
+                _viewMinZ =
+                    _panStartMinZ -
+                    worldDeltaZ;
+
+                _viewMaxZ =
+                    _panStartMaxZ -
+                    worldDeltaZ;
+
+                RenderMap();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+
+            // Placement
+
+            if (_isPlacementMode && _map != null)
+            {
+                Point mouse =
+                    e.GetPosition(
+                        this);
+
+                (float placementWorldX, float placementWorldZ) =
+                    ScreenToWorld(mouse);
+
+                _placementPreviewPosition =
+                    new Vector3(
+                        placementWorldX,
+                        0,
+                        placementWorldZ);
+
+                RenderMap();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
 
             if (!_isDragging ||
                 _draggedItem == null ||
@@ -1274,11 +1921,22 @@ namespace Ensemble.Controls
             object sender,
             MouseEventArgs e)
         {
-            if (!_isDragging)
-                return;
+            if (_isPanning)
+            {
+                _isPanning =
+                    false;
 
-            FinishDrag(
-                releaseCapture: false);
+                Cursor =
+                    _isPlacementMode
+                        ? Cursors.Cross
+                        : null;
+            }
+
+            if (_isDragging)
+            {
+                FinishDrag(
+                    releaseCapture: false);
+            }
         }
 
         private void FinishDrag(bool releaseCapture = true)
@@ -1385,10 +2043,14 @@ namespace Ensemble.Controls
 
         public void ChangeObjectPropertiesFromEditor(
             ScenarioObject obj,
+            string editorName,
             int player,
             int group,
             int visualVariationIndex)
         {
+            string oldEditorName =
+                obj.EditorName;
+
             int oldPlayer =
                 obj.Player;
 
@@ -1398,12 +2060,19 @@ namespace Ensemble.Controls
             int oldVisualVariationIndex =
                 obj.VisualVariationIndex;
 
-            if (oldPlayer == player &&
+            if (string.Equals(
+                    oldEditorName,
+                    editorName,
+                    StringComparison.Ordinal) &&
+                oldPlayer == player &&
                 oldGroup == group &&
                 oldVisualVariationIndex == visualVariationIndex)
             {
                 return;
             }
+
+            obj.EditorName =
+                editorName;
 
             obj.Player =
                 player;
@@ -1428,9 +2097,11 @@ namespace Ensemble.Controls
                 this,
                 new ScenarioObjectPropertiesChangedEventArgs(
                     obj,
+                    oldEditorName,
                     oldPlayer,
                     oldGroup,
                     oldVisualVariationIndex,
+                    editorName,
                     player,
                     group,
                     visualVariationIndex));
@@ -1512,10 +2183,14 @@ namespace Ensemble.Controls
 
         public void ApplyHistoryObjectProperties(
             ScenarioObject obj,
+            string editorName,
             int player,
             int group,
             int visualVariationIndex)
         {
+            obj.EditorName =
+                editorName;
+
             obj.Player =
                 player;
 
@@ -1816,24 +2491,24 @@ namespace Ensemble.Controls
 
             double width =
                 Math.Max(
-                    1,
-                    _map.MaxX -
-                    _map.MinX);
+                    0.0001,
+                    _viewMaxX -
+                    _viewMinX);
 
             double depth =
                 Math.Max(
-                    1,
-                    _map.MaxZ -
-                    _map.MinZ);
+                    0.0001,
+                    _viewMaxZ -
+                    _viewMinZ);
 
             double normalizedX =
                 (worldX -
-                 _map.MinX) /
+                 _viewMinX) /
                 width;
 
             double normalizedZ =
                 (worldZ -
-                 _map.MinZ) /
+                 _viewMinZ) /
                 depth;
 
             double x =
@@ -1841,7 +2516,6 @@ namespace Ensemble.Controls
                 normalizedX *
                 MapWidth;
 
-            // Higher Z appears toward the top.
             double y =
                 MarginSize +
                 (1.0 -
@@ -1853,8 +2527,7 @@ namespace Ensemble.Controls
                 y);
         }
 
-        private (float X, float Z) ScreenToWorld(
-    Point screen)
+        private (float X, float Z) ScreenToWorld(Point screen)
         {
             if (_map == null)
             {
@@ -1873,37 +2546,23 @@ namespace Ensemble.Controls
                  MarginSize) /
                 MapHeight;
 
-            normalizedX =
-                Math.Clamp(
-                    normalizedX,
-                    0.0,
-                    1.0);
-
-            normalizedScreenY =
-                Math.Clamp(
-                    normalizedScreenY,
-                    0.0,
-                    1.0);
-
-            // WorldToScreen flips Z vertically,
-            // so reverse it here.
             double normalizedZ =
                 1.0 -
                 normalizedScreenY;
 
             float worldX =
                 (float)(
-                    _map.MinX +
+                    _viewMinX +
                     normalizedX *
-                    (_map.MaxX -
-                     _map.MinX));
+                    (_viewMaxX -
+                     _viewMinX));
 
             float worldZ =
                 (float)(
-                    _map.MinZ +
+                    _viewMinZ +
                     normalizedZ *
-                    (_map.MaxZ -
-                     _map.MinZ));
+                    (_viewMaxZ -
+                     _viewMinZ));
 
             return (
                 worldX,
@@ -2075,20 +2734,50 @@ namespace Ensemble.Controls
         }
     }
 
+    public sealed class ScenarioPlacementRequestedEventArgs :
+    EventArgs
+    {
+        public ScenarioPlacementRequestedEventArgs(
+            float worldX,
+            float worldZ)
+        {
+            WorldX =
+                worldX;
+
+            WorldZ =
+                worldZ;
+        }
+
+        public float WorldX
+        {
+            get;
+        }
+
+        public float WorldZ
+        {
+            get;
+        }
+    }
+
     public sealed class ScenarioObjectPropertiesChangedEventArgs :
     EventArgs
     {
         public ScenarioObjectPropertiesChangedEventArgs(
             ScenarioObject obj,
+            string oldEditorName,
             int oldPlayer,
             int oldGroup,
             int oldVisualVariationIndex,
+            string newEditorName,
             int newPlayer,
             int newGroup,
             int newVisualVariationIndex)
         {
             Object =
                 obj;
+
+            OldEditorName =
+                oldEditorName;
 
             OldPlayer =
                 oldPlayer;
@@ -2098,6 +2787,9 @@ namespace Ensemble.Controls
 
             OldVisualVariationIndex =
                 oldVisualVariationIndex;
+
+            NewEditorName =
+                newEditorName;
 
             NewPlayer =
                 newPlayer;
@@ -2111,11 +2803,15 @@ namespace Ensemble.Controls
 
         public ScenarioObject Object { get; }
 
+        public string OldEditorName { get; }
+
         public int OldPlayer { get; }
 
         public int OldGroup { get; }
 
         public int OldVisualVariationIndex { get; }
+
+        public string NewEditorName { get; }
 
         public int NewPlayer { get; }
 

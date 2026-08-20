@@ -233,6 +233,147 @@ namespace Ensemble.Services
                 $"0x{XmxPackedDataChunkId:X16}.");
         }
 
+        private static uint AppendStringVariant(
+    uint existingVariant,
+    string value,
+    List<byte> variantBytes,
+    bool bigEndian)
+        {
+            uint typeBits =
+                existingVariant >>
+                24;
+
+            int type =
+                (int)(
+                    typeBits &
+                    0x0F);
+
+            // =====================================================
+            // ANSI STRING
+            // Type 8
+            // =====================================================
+
+            if (type == 8)
+            {
+                foreach (char c
+                         in value)
+                {
+                    if (c >
+                        0x7F)
+                    {
+                        throw new InvalidDataException(
+                            "This XMX string is stored as ANSI and " +
+                            $"cannot represent character '{c}'.");
+                    }
+                }
+
+                // Very short ANSI strings can live directly
+                // inside the 24-bit payload.
+                if (value.Length <=
+                    3)
+                {
+                    uint payload =
+                        0;
+
+                    for (int i = 0;
+                         i < value.Length;
+                         i++)
+                    {
+                        payload |=
+                            ((uint)(byte)value[i])
+                            <<
+                            (i * 8);
+                    }
+
+                    return
+                        (8u << 24)
+                        |
+                        payload;
+                }
+
+                int offset =
+                    variantBytes.Count;
+
+                EnsureVariantPoolOffset(
+                    offset);
+
+                byte[] bytes =
+                    Encoding.ASCII.GetBytes(
+                        value);
+
+                variantBytes.AddRange(
+                    bytes);
+
+                variantBytes.Add(
+                    0);
+
+                // 0x80 = offset-backed variant.
+                return
+                    (0x88u << 24)
+                    |
+                    ((uint)offset &
+                     0x00FFFFFFu);
+            }
+
+            // =====================================================
+            // UNICODE STRING
+            // Type 9
+            // =====================================================
+
+            if (type == 9)
+            {
+                AlignByteList(
+                    variantBytes,
+                    2);
+
+                int offset =
+                    variantBytes.Count;
+
+                EnsureVariantPoolOffset(
+                    offset);
+
+                Encoding encoding =
+                    bigEndian
+                        ? Encoding.BigEndianUnicode
+                        : Encoding.Unicode;
+
+                byte[] bytes =
+                    encoding.GetBytes(
+                        value);
+
+                variantBytes.AddRange(
+                    bytes);
+
+                variantBytes.Add(
+                    0);
+
+                variantBytes.Add(
+                    0);
+
+                return
+                    (0x89u << 24)
+                    |
+                    ((uint)offset &
+                     0x00FFFFFFu);
+            }
+
+            throw new InvalidDataException(
+                $"Cannot rewrite string attribute: " +
+                $"XMX variant type is {type}, expected 8 or 9.");
+        }
+
+        private static void EnsureVariantPoolOffset(
+            int offset)
+        {
+            if (offset < 0 ||
+                offset >
+                    0x00FFFFFF)
+            {
+                throw new InvalidDataException(
+                    "XMX variant pool exceeded its 24-bit offset limit.");
+            }
+        }
+
         // =========================================================
         // PACKED XMX ROOT
         // =========================================================
@@ -461,9 +602,17 @@ namespace Ensemble.Services
             }
 
             bool requiresStructuralRebuild =
-                scenario.Objects.Any(
-                    x =>
-                    x.IsNewObject) || scenario.DeletedObjectIds.Count > 0;
+    scenario.Objects.Any(
+        x =>
+            x.IsNewObject
+            ||
+            !string.Equals(
+                x.EditorName,
+                x.OriginalEditorName,
+                StringComparison.Ordinal))
+    ||
+    scenario.DeletedObjectIds.Count >
+        0;
 
             if (requiresStructuralRebuild)
             {
@@ -1020,6 +1169,27 @@ namespace Ensemble.Services
             HashSet<int> nodesToRemove =
                 new HashSet<int>();
 
+            foreach (ScenarioObject obj
+                in scenario.Objects)
+            {
+                if (!objectNodeById.TryGetValue(
+                        obj.Id,
+                        out int nodeIndex))
+                {
+                    continue;
+                }
+
+                StructuralNode node =
+                    nodes[nodeIndex];
+
+                SetStructuralStringAttribute(
+                    node,
+                    "EditorName",
+                    obj.EditorName,
+                    variantBytes,
+                    bigEndian);
+            }
+
             foreach (int deletedId
                      in scenario.DeletedObjectIds)
             {
@@ -1052,6 +1222,35 @@ namespace Ensemble.Services
                 variantBytes,
                 layout,
                 bigEndian);
+        }
+
+        private static void SetStructuralStringAttribute(
+            StructuralNode node,
+            string attributeName,
+            string value,
+            List<byte> variantBytes,
+            bool bigEndian)
+        {
+            StructuralAttribute? attr =
+                node.Attributes
+                    .FirstOrDefault(
+                        x =>
+                            x.Name ==
+                            attributeName);
+
+            if (attr == null)
+            {
+                throw new InvalidDataException(
+                    $"Scenario object contains no " +
+                    $"'{attributeName}' attribute.");
+            }
+
+            attr.ValueVariant =
+                AppendStringVariant(
+                    attr.ValueVariant,
+                    value,
+                    variantBytes,
+                    bigEndian);
         }
 
         private static void PatchIntegerAttribute(
