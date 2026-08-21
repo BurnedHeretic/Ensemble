@@ -209,9 +209,10 @@ namespace Ensemble.Services
                                 "TintValue"),
 
                         EditorName =
-                            ReadAttribute(
-                                element,
-                                "EditorName"),
+                        editorName,
+
+                        OriginalEditorName =
+                        editorName,
 
                         Position =
                             ParseVector3(
@@ -400,6 +401,8 @@ namespace Ensemble.Services
                                 point));
                     }
                 }
+
+                path.AcceptPointChangesAsBaseline();
 
                 map.Paths.Add(
                     path);

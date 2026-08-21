@@ -1,4 +1,5 @@
 ﻿using Ensemble.Models;
+using System.Numerics;
 using System.Buffers.Binary;
 using System.Globalization;
 using System.IO;
@@ -602,17 +603,20 @@ namespace Ensemble.Services
             }
 
             bool requiresStructuralRebuild =
-    scenario.Objects.Any(
-        x =>
+                scenario.Objects.Any(
+                    x =>
             x.IsNewObject
             ||
             !string.Equals(
                 x.EditorName,
                 x.OriginalEditorName,
                 StringComparison.Ordinal))
-    ||
-    scenario.DeletedObjectIds.Count >
-        0;
+                ||
+                scenario.DeletedObjectIds.Count > 0
+                ||
+                scenario.Paths.Any(
+                    x =>
+                    x.HasPointChanges);
 
             if (requiresStructuralRebuild)
             {
@@ -1058,6 +1062,9 @@ namespace Ensemble.Services
             Dictionary<int, int> objectNodeById =
                 new();
 
+            Dictionary<int, int> pathNodeById =
+                new();
+
             for (int i = 0;
                  i < nodes.Count;
                  i++)
@@ -1069,11 +1076,35 @@ namespace Ensemble.Services
                         originalVariantData,
                         bigEndian);
 
-                if (nodeName ==
-                    "Objects")
+                if (nodeName == "Lines")
                 {
-                    objectsNodeIndex =
-                        i;
+                    StructuralAttribute? pathIdAttribute =
+                        nodes[i]
+                            .Attributes
+                            .FirstOrDefault(
+                                x =>
+                                    x.Name ==
+                                    "ID");
+
+                    if (pathIdAttribute != null)
+                    {
+                        string pathIdText =
+                            DecodeVariant(
+                                pathIdAttribute.ValueVariant,
+                                originalData,
+                                originalVariantData,
+                                bigEndian);
+
+                        if (int.TryParse(
+                                pathIdText,
+                                NumberStyles.Integer,
+                                CultureInfo.InvariantCulture,
+                                out int pathId))
+                        {
+                            pathNodeById[pathId] =
+                                i;
+                        }
+                    }
                 }
 
                 if (nodeName !=
@@ -1111,10 +1142,17 @@ namespace Ensemble.Services
                 }
             }
 
-            if (objectsNodeIndex < 0)
+            bool hasNewObjects =
+                scenario.Objects.Any(
+        x =>
+            x.IsNewObject);
+
+            if (hasNewObjects &&
+                objectsNodeIndex < 0)
             {
                 throw new InvalidDataException(
-                    "Scenario contains no <Objects> XMX node.");
+                    "Scenario contains no <Objects> XMX node, " +
+                    "but new scenario objects need to be added.");
             }
 
             foreach (ScenarioObject obj
@@ -1190,6 +1228,72 @@ namespace Ensemble.Services
                     bigEndian);
             }
 
+            foreach (ScenarioPath path
+         in scenario.Paths.Where(
+             x =>
+                 x.HasPointChanges))
+            {
+                if (!pathNodeById.TryGetValue(
+                        path.Id,
+                        out int pathNodeIndex))
+                {
+                    throw new InvalidDataException(
+                        $"Cannot update design path ID {path.Id}: " +
+                        "its XMX node could not be found.");
+                }
+
+                StructuralNode pathNode =
+                    nodes[pathNodeIndex];
+
+                int pointsNodeIndex =
+                    -1;
+
+                foreach (uint childIndexValue
+                         in pathNode.Children)
+                {
+                    int childIndex =
+                        checked(
+                            (int)childIndexValue);
+
+                    StructuralNode child =
+                        nodes[childIndex];
+
+                    string childName =
+                        DecodeVariant(
+                            child.NameVariant,
+                            originalData,
+                            originalVariantData,
+                            bigEndian);
+
+                    if (childName ==
+                        "Points")
+                    {
+                        pointsNodeIndex =
+                            childIndex;
+
+                        break;
+                    }
+                }
+
+                if (pointsNodeIndex <
+                    0)
+                {
+                    throw new InvalidDataException(
+                        $"Design path ID {path.Id} contains no " +
+                        "<Points> XMX node.");
+                }
+
+                string pointsText =
+                    SerializePathPoints(
+                        path.Points);
+
+                SetStructuralNodeText(
+                    nodes[pointsNodeIndex],
+                    pointsText,
+                    variantBytes,
+                    bigEndian);
+            }
+
             foreach (int deletedId
                      in scenario.DeletedObjectIds)
             {
@@ -1224,6 +1328,26 @@ namespace Ensemble.Services
                 bigEndian);
         }
 
+        private static string SerializePathPoints(
+            IReadOnlyList<Vector3> points)
+        {
+            return string.Join(
+                "|",
+                points.Select(
+                    point =>
+                        point.X.ToString(
+                            "G9",
+                            CultureInfo.InvariantCulture)
+                        + ","
+                        + point.Y.ToString(
+                            "G9",
+                            CultureInfo.InvariantCulture)
+                        + ","
+                        + point.Z.ToString(
+                            "G9",
+                            CultureInfo.InvariantCulture)));
+        }
+
         private static void SetStructuralStringAttribute(
             StructuralNode node,
             string attributeName,
@@ -1248,6 +1372,20 @@ namespace Ensemble.Services
             attr.ValueVariant =
                 AppendStringVariant(
                     attr.ValueVariant,
+                    value,
+                    variantBytes,
+                    bigEndian);
+        }
+
+        private static void SetStructuralNodeText(
+            StructuralNode node,
+            string value,
+            List<byte> variantBytes,
+            bool bigEndian)
+        {
+            node.TextVariant =
+                AppendStringVariant(
+                    node.TextVariant,
                     value,
                     variantBytes,
                     bigEndian);

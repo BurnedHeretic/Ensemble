@@ -73,6 +73,9 @@ namespace Ensemble
             ScenarioMapCanvas.PlacementRequested +=
                 ScenarioMapCanvas_PlacementRequested;
 
+            ScenarioMapCanvas.PathPointMoved +=
+                ScenarioMapCanvas_PathPointMoved;
+
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
 
@@ -811,6 +814,88 @@ namespace Ensemble
             }
         }
 
+        private sealed class PathPointMoveHistoryAction :
+            IScenarioHistoryAction
+        {
+            public PathPointMoveHistoryAction(
+                ScenarioPath path,
+                int pointIndex,
+                Vector3 oldPosition,
+                Vector3 newPosition,
+                long beforeRevisionId,
+                long afterRevisionId)
+            {
+                Path =
+                    path;
+
+                PointIndex =
+                    pointIndex;
+
+                OldPosition =
+                    oldPosition;
+
+                NewPosition =
+                    newPosition;
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+            public ScenarioPath Path
+            {
+                get;
+            }
+
+            public int PointIndex
+            {
+                get;
+            }
+
+            public Vector3 OldPosition
+            {
+                get;
+            }
+
+            public Vector3 NewPosition
+            {
+                get;
+            }
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+            public long AfterRevisionId
+            {
+                get;
+            }
+
+            public string Description =>
+                $"Move {Path.Name} point {PointIndex + 1}";
+
+            public void Undo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryPathPoint(
+                    Path,
+                    PointIndex,
+                    OldPosition);
+            }
+
+            public void Redo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                canvas.ApplyHistoryPathPoint(
+                    Path,
+                    PointIndex,
+                    NewPosition);
+            }
+        }
+
         private sealed class SphereRadiusHistoryAction :
             IScenarioHistoryAction
         {
@@ -1302,6 +1387,43 @@ namespace Ensemble
                         $"Actual:   {actualSphere.Radius}");
                 }
             }
+
+            foreach (ScenarioPath expectedPath
+                in expected.Paths)
+            {
+                ScenarioPath? actualPath =
+                    actual.Paths.Find(
+                        x =>
+                            x.Id ==
+                            expectedPath.Id);
+
+                if (actualPath == null)
+                {
+                    throw new InvalidDataException(
+                        $"Scenario XMB verification failed: " +
+                        $"design path {expectedPath.Id} disappeared.");
+                }
+
+                if (expectedPath.Points.Count !=
+                    actualPath.Points.Count)
+                {
+                    throw new InvalidDataException(
+                        $"Design Path {expectedPath.Id} point count " +
+                        $"failed round-trip verification.\n\n" +
+                        $"Expected: {expectedPath.Points.Count}\n" +
+                        $"Actual:   {actualPath.Points.Count}");
+                }
+
+                for (int i = 0;
+                     i < expectedPath.Points.Count;
+                     i++)
+                {
+                    RequireVectorEqual(
+                        expectedPath.Points[i],
+                        actualPath.Points[i],
+                        $"Design Path {expectedPath.Id} Point {i + 1}");
+                }
+            }
         }
 
         private static void RequireVectorEqual(
@@ -1531,6 +1653,40 @@ namespace Ensemble
                 $"Added {e.Object.Type} | " +
                 $"New ID: {e.Object.Id} | " +
                 $"{ScenarioMapCanvas.Scenario?.Objects.Count ?? 0} objects";
+        }
+
+        private void ScenarioMapCanvas_PathPointMoved(
+            object? sender,
+            Ensemble.Controls.ScenarioPathPointMovedEventArgs e)
+        {
+            long beforeRevision =
+                _currentRevisionId;
+
+            long afterRevision =
+                ++_nextRevisionId;
+
+            _undoStack.Push(
+                new PathPointMoveHistoryAction(
+                    e.Path,
+                    e.PointIndex,
+                    e.OldPosition,
+                    e.NewPosition,
+                    beforeRevision,
+                    afterRevision));
+
+            _redoStack.Clear();
+
+            _currentRevisionId =
+                afterRevision;
+
+            UpdateUndoRedoUi();
+
+            UpdateDirtyState();
+
+            StatusText.Text =
+                $"Moved {e.Path.Name} point {e.PointIndex + 1} | " +
+                $"X {e.NewPosition.X:0.##}, " +
+                $"Z {e.NewPosition.Z:0.##}";
         }
 
         private sealed class AddObjectHistoryAction :
@@ -2392,7 +2548,9 @@ namespace Ensemble
                 "-";
 
             SelectedDetailsText.Text =
-                $"Points: {path.Points.Count}";
+                $"Points: {path.Points.Count}\n" +
+                "Drag the white vertex handles on the map " +
+                "to edit this path.";
         }
 
         private void ShowArchiveInfo_Click(
@@ -3174,17 +3332,20 @@ namespace Ensemble
                     ScenarioMapCanvas.Scenario;
 
                 bool hadStructuralChanges =
-    expected.Objects.Any(
-        x =>
+                    expected.Objects.Any(
+                        x =>
             x.IsNewObject
             ||
             !string.Equals(
                 x.EditorName,
                 x.OriginalEditorName,
                 StringComparison.Ordinal))
-    ||
-    expected.DeletedObjectIds.Count >
-        0;
+                    ||
+                    expected.DeletedObjectIds.Count > 0
+                    ||
+                    expected.Paths.Any(
+                        x =>
+            x.HasPointChanges);
 
                 byte[] modifiedXmb =
                     XmbDocumentService.WriteScenario(
@@ -3302,6 +3463,12 @@ namespace Ensemble
                 }
 
                 expected.DeletedObjectIds.Clear();
+
+                foreach (ScenarioPath path
+                    in expected.Paths)
+                {
+                    path.AcceptPointChangesAsBaseline();
+                }
 
                 if (hadStructuralChanges)
                 {

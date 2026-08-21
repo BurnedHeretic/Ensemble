@@ -16,12 +16,27 @@ namespace Ensemble.Controls
 
         private object? _selectedItem;
 
+        // Object dragging state:
         private object? _draggedItem;
 
         private Vector3 _dragStartPosition;
 
         private bool _isDragging;
 
+        private bool
+            _isDraggingPathPoint;
+
+        private ScenarioPath?
+            _draggedPath;
+
+        private int
+            _draggedPathPointIndex =
+                -1;
+
+        private Vector3
+            _pathPointDragStartPosition;
+
+        // Placement state:
         private bool _isPlacementMode;
 
         private float _viewMinX;
@@ -29,6 +44,7 @@ namespace Ensemble.Controls
         private float _viewMaxX;
         private float _viewMaxZ;
 
+        // Panning state:
         private bool _isPanning;
 
         private Point _panStartMouse;
@@ -67,8 +83,35 @@ namespace Ensemble.Controls
         public event EventHandler<ScenarioPlacementRequestedEventArgs>?
             PlacementRequested;
 
+        public event EventHandler<ScenarioPathPointMovedEventArgs>?
+            PathPointMoved;
+
         public bool IsObjectPlacementActive =>
             _isPlacementMode;
+
+        private sealed class PathPointHandle
+        {
+            public PathPointHandle(
+                ScenarioPath path,
+                int index)
+            {
+                Path =
+                    path;
+
+                Index =
+                    index;
+            }
+
+            public ScenarioPath Path
+            {
+                get;
+            }
+
+            public int Index
+            {
+                get;
+            }
+        }
 
         public MapCanvas()
         {
@@ -507,24 +550,33 @@ namespace Ensemble.Controls
                     continue;
                 }
 
+                bool selected =
+                    ReferenceEquals(
+                        path,
+                        _selectedItem);
+
                 Polyline line =
                     new Polyline
                     {
                         Stroke =
-                            new SolidColorBrush(
-                                Color.FromRgb(
-                                    255,
-                                    120,
-                                    70)),
+                            selected
+                                ? Brushes.OrangeRed
+                                : new SolidColorBrush(
+                                    Color.FromRgb(
+                                        255,
+                                        120,
+                                        70)),
 
                         StrokeThickness =
-                            2,
+                            selected
+                                ? 3
+                                : 2,
 
                         StrokeDashArray =
                             new DoubleCollection
                             {
-                                5,
-                                3
+                        5,
+                        3
                             },
 
                         Tag =
@@ -536,7 +588,7 @@ namespace Ensemble.Controls
                             $"{path.Points.Count} points"
                     };
 
-                foreach (var point
+                foreach (Vector3 point
                          in path.Points)
                 {
                     Point screen =
@@ -553,7 +605,128 @@ namespace Ensemble.Controls
 
                 Children.Add(
                     line);
+
+                if (selected)
+                {
+                    DrawPathPointHandles(
+                        path);
+                }
             }
+        }
+
+        private void DrawPathPointHandles(
+            ScenarioPath path)
+        {
+            for (int i = 0;
+                 i < path.Points.Count;
+                 i++)
+            {
+                Vector3 point =
+                    path.Points[i];
+
+                Point screen =
+                    WorldToScreen(
+                        point.X,
+                        point.Z);
+
+                const double size =
+                    12;
+
+                Ellipse handle =
+                    new Ellipse
+                    {
+                        Width =
+                            size,
+
+                        Height =
+                            size,
+
+                        Fill =
+                            Brushes.White,
+
+                        Stroke =
+                            Brushes.OrangeRed,
+
+                        StrokeThickness =
+                            2,
+
+                        Tag =
+                            new PathPointHandle(
+                                path,
+                                i),
+
+                        ToolTip =
+                            $"Point {i + 1}\n" +
+                            $"X {point.X:0.####}\n" +
+                            $"Y {point.Y:0.####}\n" +
+                            $"Z {point.Z:0.####}"
+                    };
+
+                handle.MouseLeftButtonDown +=
+                    PathPointHandle_MouseLeftButtonDown;
+
+                SetLeft(
+                    handle,
+                    screen.X -
+                    size / 2);
+
+                SetTop(
+                    handle,
+                    screen.Y -
+                    size / 2);
+
+                Children.Add(
+                    handle);
+            }
+        }
+
+        private void PathPointHandle_MouseLeftButtonDown(
+            object sender,
+            MouseButtonEventArgs e)
+        {
+            if (sender
+                is not FrameworkElement element ||
+                element.Tag
+                is not PathPointHandle handle)
+            {
+                return;
+            }
+
+            if (handle.Index < 0 ||
+                handle.Index >=
+                    handle.Path.Points.Count)
+            {
+                return;
+            }
+
+            _selectedItem =
+                handle.Path;
+
+            _draggedPath =
+                handle.Path;
+
+            _draggedPathPointIndex =
+                handle.Index;
+
+            _pathPointDragStartPosition =
+                handle.Path.Points[
+                    handle.Index];
+
+            _isDraggingPathPoint =
+                true;
+
+            Cursor =
+                Cursors.SizeAll;
+
+            CaptureMouse();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    handle.Path));
+
+            e.Handled =
+                true;
         }
 
         // =========================================================
@@ -1838,6 +2011,78 @@ namespace Ensemble.Controls
                 return;
             }
 
+            // =====================================================
+            // DESIGN PATH POINT DRAGGING
+            // =====================================================
+
+            if (_isDraggingPathPoint &&
+                _draggedPath != null &&
+                _map != null)
+            {
+                if (e.LeftButton !=
+                    MouseButtonState.Pressed)
+                {
+                    FinishPathPointDrag();
+
+                    return;
+                }
+
+                if (_draggedPathPointIndex <
+                        0 ||
+                    _draggedPathPointIndex >=
+                        _draggedPath.Points.Count)
+                {
+                    FinishPathPointDrag();
+
+                    return;
+                }
+
+                Point pathMousePosition =
+                    e.GetPosition(
+                        this);
+
+                (float pathWorldX, float pathWorldZ) =
+                    ScreenToWorld(
+                        pathMousePosition);
+
+                Vector3 oldPoint =
+                    _draggedPath.Points[
+                        _draggedPathPointIndex];
+
+                Vector3 newPoint =
+                    new Vector3(
+                        pathWorldX,
+
+                        // Preserve the original terrain height.
+                        oldPoint.Y,
+
+                        pathWorldZ);
+
+                if (Vector3.DistanceSquared(
+                        oldPoint,
+                        newPoint) <
+                    0.000001f)
+                {
+                    return;
+                }
+
+                _draggedPath.Points[
+                    _draggedPathPointIndex] =
+                        newPoint;
+
+                RenderMap();
+
+                SelectionChanged?.Invoke(
+                    this,
+                    new ScenarioSelectionChangedEventArgs(
+                        _draggedPath));
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
             if (!_isDragging ||
                 _draggedItem == null ||
                 _map == null)
@@ -1908,6 +2153,16 @@ namespace Ensemble.Controls
             object sender,
             MouseButtonEventArgs e)
         {
+            if (_isDraggingPathPoint)
+            {
+                FinishPathPointDrag();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
             if (!_isDragging)
                 return;
 
@@ -1930,6 +2185,12 @@ namespace Ensemble.Controls
                     _isPlacementMode
                         ? Cursors.Cross
                         : null;
+            }
+
+            if (_isDraggingPathPoint)
+            {
+                FinishPathPointDrag(
+                    releaseCapture: false);
             }
 
             if (_isDragging)
@@ -1989,6 +2250,74 @@ namespace Ensemble.Controls
                 this,
                 new ScenarioItemMovedEventArgs(
                     item,
+                    oldPosition,
+                    newPosition));
+        }
+
+        private void FinishPathPointDrag(
+            bool releaseCapture = true)
+        {
+            if (!_isDraggingPathPoint)
+                return;
+
+            ScenarioPath? path =
+                _draggedPath;
+
+            int index =
+                _draggedPathPointIndex;
+
+            Vector3 oldPosition =
+                _pathPointDragStartPosition;
+
+            Vector3 newPosition =
+                oldPosition;
+
+            if (path != null &&
+                index >= 0 &&
+                index <
+                    path.Points.Count)
+            {
+                newPosition =
+                    path.Points[index];
+            }
+
+            _isDraggingPathPoint =
+                false;
+
+            _draggedPath =
+                null;
+
+            _draggedPathPointIndex =
+                -1;
+
+            Cursor =
+                null;
+
+            if (releaseCapture &&
+                IsMouseCaptured)
+            {
+                ReleaseMouseCapture();
+            }
+
+            if (path == null ||
+                index < 0)
+            {
+                return;
+            }
+
+            if (Vector3.DistanceSquared(
+                    oldPosition,
+                    newPosition) <
+                0.000001f)
+            {
+                return;
+            }
+
+            PathPointMoved?.Invoke(
+                this,
+                new ScenarioPathPointMovedEventArgs(
+                    path,
+                    index,
                     oldPosition,
                     newPosition));
         }
@@ -2234,6 +2563,34 @@ namespace Ensemble.Controls
                 this,
                 new ScenarioSelectionChangedEventArgs(
                     item));
+        }
+
+        public void ApplyHistoryPathPoint(
+            ScenarioPath path,
+            int pointIndex,
+            Vector3 position)
+        {
+            if (pointIndex < 0 ||
+                pointIndex >=
+                    path.Points.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(pointIndex));
+            }
+
+            path.Points[
+                pointIndex] =
+                    position;
+
+            _selectedItem =
+                path;
+
+            RenderMap();
+
+            SelectionChanged?.Invoke(
+                this,
+                new ScenarioSelectionChangedEventArgs(
+                    path));
         }
 
         private static Vector3 GetItemPosition(
@@ -2840,6 +3197,49 @@ namespace Ensemble.Controls
         }
 
         public bool WasNewObject
+        {
+            get;
+        }
+    }
+
+    public sealed class ScenarioPathPointMovedEventArgs :
+    EventArgs
+    {
+        public ScenarioPathPointMovedEventArgs(
+            ScenarioPath path,
+            int pointIndex,
+            Vector3 oldPosition,
+            Vector3 newPosition)
+        {
+            Path =
+                path;
+
+            PointIndex =
+                pointIndex;
+
+            OldPosition =
+                oldPosition;
+
+            NewPosition =
+                newPosition;
+        }
+
+        public ScenarioPath Path
+        {
+            get;
+        }
+
+        public int PointIndex
+        {
+            get;
+        }
+
+        public Vector3 OldPosition
+        {
+            get;
+        }
+
+        public Vector3 NewPosition
         {
             get;
         }
