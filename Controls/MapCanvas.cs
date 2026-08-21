@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Media.Imaging;
 
 namespace Ensemble.Controls
 {
@@ -13,6 +14,12 @@ namespace Ensemble.Controls
         private const double MarginSize = 34;
 
         private ScenarioMap? _map;
+
+        private TerrainHeightMap?
+            _terrainHeightMap;
+
+        private BitmapSource?
+            _terrainHeightBitmap;
 
         private object? _selectedItem;
 
@@ -166,6 +173,12 @@ namespace Ensemble.Controls
                 ?? throw new ArgumentNullException(
                     nameof(map));
 
+            _terrainHeightMap =
+                null;
+
+            _terrainHeightBitmap =
+                null;
+
             _selectedItem =
                 null;
 
@@ -224,6 +237,8 @@ namespace Ensemble.Controls
                 return;
             }
 
+            DrawTerrainHeightMap();
+
             DrawGrid();
 
             DrawPaths();
@@ -251,6 +266,202 @@ namespace Ensemble.Controls
             DrawPlacementPreview();
             DrawMapTitle();
             DrawLegend();
+        }
+
+        public void SetTerrainHeightMap(
+            TerrainHeightMap? terrain)
+        {
+            _terrainHeightMap =
+                terrain;
+
+            _terrainHeightBitmap =
+                terrain == null
+                    ? null
+                    : BuildTerrainHeightBitmap(
+                        terrain);
+
+            RenderMap();
+        }
+
+        private static BitmapSource BuildTerrainHeightBitmap(
+            TerrainHeightMap terrain)
+        {
+            int width =
+                terrain.Width;
+
+            int height =
+                terrain.Height;
+
+            int stride =
+                checked(
+                    width *
+                    4);
+
+            byte[] pixels =
+                new byte[
+                    checked(
+                        stride *
+                        height)];
+
+            float heightRange =
+                Math.Max(
+                    0.0001f,
+                    terrain.MaxHeight -
+                    terrain.MinHeight);
+
+
+            for (int z = 0;
+                 z < height;
+                 z++)
+            {
+                // World Z increases upward,
+                // bitmap Y increases downward.
+                int bitmapY =
+                    height -
+                    1 -
+                    z;
+
+                for (int x = 0;
+                     x < width;
+                     x++)
+                {
+                    float worldHeight =
+                        terrain.Heights[
+                            z *
+                            width +
+                            x];
+
+                    float normalized =
+                        (worldHeight -
+                         terrain.MinHeight) /
+                        heightRange;
+
+                    normalized =
+                        Math.Clamp(
+                            normalized,
+                            0,
+                            1);
+
+                    byte shade =
+                        (byte)(
+                            35 +
+                            normalized *
+                            175);
+
+                    int p =
+                        bitmapY *
+                        stride +
+                        x *
+                        4;
+
+                    // BGRA
+                    pixels[p] =
+                        shade;
+
+                    pixels[p + 1] =
+                        shade;
+
+                    pixels[p + 2] =
+                        shade;
+
+                    pixels[p + 3] =
+                        255;
+                }
+            }
+
+
+            BitmapSource bitmap =
+                BitmapSource.Create(
+                    width,
+                    height,
+                    96,
+                    96,
+                    PixelFormats.Bgra32,
+                    null,
+                    pixels,
+                    stride);
+
+            bitmap.Freeze();
+
+            return bitmap;
+        }
+
+        private void DrawTerrainHeightMap()
+        {
+            if (_terrainHeightMap == null ||
+                _terrainHeightBitmap == null)
+            {
+                return;
+            }
+
+            float terrainMaxX =
+                _terrainHeightMap.WorldWidth;
+
+            float terrainMaxZ =
+                _terrainHeightMap.WorldDepth;
+
+            Point topLeft =
+                WorldToScreen(
+                    0,
+                    terrainMaxZ);
+
+            Point bottomRight =
+                WorldToScreen(
+                    terrainMaxX,
+                    0);
+
+            double left =
+                Math.Min(
+                    topLeft.X,
+                    bottomRight.X);
+
+            double top =
+                Math.Min(
+                    topLeft.Y,
+                    bottomRight.Y);
+
+            double width =
+                Math.Abs(
+                    bottomRight.X -
+                    topLeft.X);
+
+            double height =
+                Math.Abs(
+                    bottomRight.Y -
+                    topLeft.Y);
+
+            Image terrainImage =
+                new Image
+                {
+                    Source =
+                        _terrainHeightBitmap,
+
+                    Width =
+                        width,
+
+                    Height =
+                        height,
+
+                    Stretch =
+                        Stretch.Fill,
+
+                    Opacity =
+                        0.78,
+
+                    IsHitTestVisible =
+                        false
+                };
+
+            SetLeft(
+                terrainImage,
+                left);
+
+            SetTop(
+                terrainImage,
+                top);
+
+            Children.Add(
+                terrainImage);
         }
 
         private void DrawPlacementPreview()
@@ -448,11 +659,9 @@ namespace Ensemble.Controls
                         1,
 
                     Fill =
-                        new SolidColorBrush(
-                            Color.FromRgb(
-                                30,
-                                30,
-                                30)),
+                    _terrainHeightBitmap == null
+                    ? new SolidColorBrush(
+                        Color.FromRgb(30,30,30)) : Brushes.Transparent,
 
                     IsHitTestVisible =
                         false

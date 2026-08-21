@@ -1191,6 +1191,9 @@ namespace Ensemble
                     ScenarioMapCanvas.SetMap(
                         map);
 
+                    TerrainHeightMap? terrain =
+                        TryLoadTerrainHeightMap(map);
+
                     ScenarioMapCanvas.Visibility =
                         Visibility.Visible;
 
@@ -1207,7 +1210,11 @@ namespace Ensemble
                         $"{map.Objects.Count} objects | " +
                         $"{map.PlayerStarts.Count} player starts | " +
                         $"{map.Spheres.Count} design spheres | " +
-                        $"{map.Paths.Count} design paths";
+                        $"{map.Paths.Count} design paths" +
+                        (terrain != null
+                        ? $" | XTD {terrain.Width}×{terrain.Height} | " +
+                        $"height {terrain.MinHeight:0.##} → " +
+                        $"{terrain.MaxHeight:0.##}" : " | no XTD terrain loaded");
                 }
                 else
                 {
@@ -1226,9 +1233,6 @@ namespace Ensemble
                     StatusText.Text =
                         $"Decoded XMB: {chunk.FileName}";
                 }
-
-                StatusText.Text =
-                    $"Decoded XMB: {chunk.FileName}";
             }
             catch (Exception ex)
             {
@@ -1268,6 +1272,13 @@ namespace Ensemble
                             x.Id ==
                             expectedObject.Id);
 
+                if (actualObject == null)
+                {
+                    throw new InvalidDataException(
+                        $"Scenario XMB verification failed: " +
+                        $"object ID {expectedObject.Id} disappeared.");
+                }
+
                 if (!string.Equals(
                     expectedObject.EditorName,
                     actualObject.EditorName,
@@ -1278,13 +1289,6 @@ namespace Ensemble
                         $"failed round-trip verification.\n\n" +
                         $"Expected: {expectedObject.EditorName}\n" +
                         $"Actual:   {actualObject.EditorName}");
-                }
-
-                if (actualObject == null)
-                {
-                    throw new InvalidDataException(
-                        $"Scenario XMB verification failed: " +
-                        $"object ID {expectedObject.Id} disappeared.");
                 }
 
                 if (expectedObject.Player !=
@@ -1687,6 +1691,140 @@ namespace Ensemble
                 $"Moved {e.Path.Name} point {e.PointIndex + 1} | " +
                 $"X {e.NewPosition.X:0.##}, " +
                 $"Z {e.NewPosition.Z:0.##}";
+        }
+
+        //-----------------------------------------------------
+        // Terrain Height Map Loading
+        //-----------------------------------------------------
+        private TerrainHeightMap? TryLoadTerrainHeightMap(
+            ScenarioMap map)
+        {
+            if (_currentArchive == null)
+                return null;
+
+            List<EraChunkInfo> candidates =
+                _currentArchive.Chunks
+                    .Where(
+                        x =>
+                            x.FileName.EndsWith(
+                                ".xtd",
+                                StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+            if (candidates.Count ==
+                0)
+            {
+                ScenarioMapCanvas
+                    .SetTerrainHeightMap(
+                        null);
+
+                return null;
+            }
+
+
+            string terrainKey =
+                NormalizeTerrainName(
+                    map.Terrain);
+
+            EraChunkInfo? terrainChunk =
+                candidates.FirstOrDefault(
+                    x =>
+                        NormalizeTerrainName(
+                            GetEraFileStem(
+                                x.FileName))
+                        ==
+                        terrainKey);
+
+
+            terrainChunk ??=
+                candidates.FirstOrDefault(
+                    x =>
+                        NormalizeTerrainName(
+                            x.FileName)
+                            .Contains(
+                                terrainKey,
+                                StringComparison.Ordinal));
+
+
+            // Most skirmish ERAs only contain one XTD,
+            // so use it if filename matching wasn't necessary.
+            if (terrainChunk == null &&
+                candidates.Count ==
+                    1)
+            {
+                terrainChunk =
+                    candidates[0];
+            }
+
+
+            if (terrainChunk == null)
+            {
+                ScenarioMapCanvas
+                    .SetTerrainHeightMap(
+                        null);
+
+                return null;
+            }
+
+
+            byte[] xtdData =
+                EraExtractionService.ExtractChunk(
+                    _currentArchive,
+                    terrainChunk);
+
+            TerrainHeightMap terrain =
+                TerrainXtdService.Read(
+                    xtdData);
+
+            ScenarioMapCanvas
+                .SetTerrainHeightMap(
+                    terrain);
+
+            return terrain;
+        }
+
+        private static string GetEraFileStem(
+            string fileName)
+        {
+            string normalized =
+                fileName.Replace(
+                    '\\',
+                    '/');
+
+            int slash =
+                normalized.LastIndexOf(
+                    '/');
+
+            string leaf =
+                slash >= 0
+                    ? normalized[
+                        (slash + 1)..]
+                    : normalized;
+
+            int dot =
+                leaf.LastIndexOf(
+                    '.');
+
+            return dot >= 0
+                ? leaf[..dot]
+                : leaf;
+        }
+
+        private static string NormalizeTerrainName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(
+                value))
+            {
+                return string.Empty;
+            }
+
+            return new string(
+                value
+                    .Where(
+                        char.IsLetterOrDigit)
+                    .Select(
+                        char.ToLowerInvariant)
+                    .ToArray());
         }
 
         private sealed class AddObjectHistoryAction :
