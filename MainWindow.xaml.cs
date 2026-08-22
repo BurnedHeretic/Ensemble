@@ -1194,6 +1194,10 @@ namespace Ensemble
                     TerrainHeightMap? terrain =
                         TryLoadTerrainHeightMap(map);
 
+                    TerrainTextureMap? terrainTexture =
+                        TryLoadTerrainTextureMap(
+                            map);
+
                     ScenarioMapCanvas.Visibility =
                         Visibility.Visible;
 
@@ -1214,7 +1218,12 @@ namespace Ensemble
                         (terrain != null
                         ? $" | XTD {terrain.Width}×{terrain.Height} | " +
                         $"height {terrain.MinHeight:0.##} → " +
-                        $"{terrain.MaxHeight:0.##}" : " | no XTD terrain loaded");
+                        $"{terrain.MaxHeight:0.##}"
+                        : " | no XTD terrain loaded")
+                        +
+                        (terrainTexture != null
+                        ? $" | XTT {terrainTexture.Width}×{terrainTexture.Height}"
+                        : " | no XTT texture loaded");
                 }
                 else
                 {
@@ -1778,6 +1787,91 @@ namespace Ensemble
 
             ScenarioMapCanvas
                 .SetTerrainHeightMap(
+                    terrain);
+
+            return terrain;
+        }
+
+        private TerrainTextureMap? TryLoadTerrainTextureMap(
+            ScenarioMap map)
+        {
+            if (_currentArchive == null)
+                return null;
+
+            List<EraChunkInfo> candidates =
+                _currentArchive.Chunks
+                    .Where(
+                        x =>
+                            x.FileName.EndsWith(
+                                ".xtt",
+                                StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+            if (candidates.Count ==
+                0)
+            {
+                ScenarioMapCanvas
+                    .SetTerrainTextureMap(
+                        null);
+
+                return null;
+            }
+
+
+            string terrainKey =
+                NormalizeTerrainName(
+                    map.Terrain);
+
+            EraChunkInfo? terrainChunk =
+                candidates.FirstOrDefault(
+                    x =>
+                        NormalizeTerrainName(
+                            GetEraFileStem(
+                                x.FileName))
+                        ==
+                        terrainKey);
+
+
+            terrainChunk ??=
+                candidates.FirstOrDefault(
+                    x =>
+                        NormalizeTerrainName(
+                            x.FileName)
+                            .Contains(
+                                terrainKey,
+                                StringComparison.Ordinal));
+
+
+            if (terrainChunk == null &&
+                candidates.Count ==
+                    1)
+            {
+                terrainChunk =
+                    candidates[0];
+            }
+
+
+            if (terrainChunk == null)
+            {
+                ScenarioMapCanvas
+                    .SetTerrainTextureMap(
+                        null);
+
+                return null;
+            }
+
+
+            byte[] xttData =
+                EraExtractionService.ExtractChunk(
+                    _currentArchive,
+                    terrainChunk);
+
+            TerrainTextureMap terrain =
+                TerrainXttService.Read(
+                    xttData);
+
+            ScenarioMapCanvas
+                .SetTerrainTextureMap(
                     terrain);
 
             return terrain;

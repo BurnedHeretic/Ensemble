@@ -21,6 +21,12 @@ namespace Ensemble.Controls
         private BitmapSource?
             _terrainHeightBitmap;
 
+        private TerrainTextureMap?
+            _terrainTextureMap;
+
+        private BitmapSource?
+            _terrainTextureBitmap;
+
         private object? _selectedItem;
 
         // Object dragging state:
@@ -179,6 +185,12 @@ namespace Ensemble.Controls
             _terrainHeightBitmap =
                 null;
 
+            _terrainTextureMap =
+                null;
+
+            _terrainTextureBitmap =
+                null;
+
             _selectedItem =
                 null;
 
@@ -190,6 +202,44 @@ namespace Ensemble.Controls
                 this,
                 new ScenarioSelectionChangedEventArgs(
                     null));
+        }
+
+        public void SetTerrainTextureMap(
+            TerrainTextureMap? terrain)
+        {
+            _terrainTextureMap =
+                terrain;
+
+            if (terrain == null)
+            {
+                _terrainTextureBitmap =
+                    null;
+            }
+            else
+            {
+                int stride =
+                    checked(
+                        terrain.Width *
+                        4);
+
+                BitmapSource bitmap =
+                    BitmapSource.Create(
+                        terrain.Width,
+                        terrain.Height,
+                        96,
+                        96,
+                        PixelFormats.Bgra32,
+                        null,
+                        terrain.BgraPixels,
+                        stride);
+
+                bitmap.Freeze();
+
+                _terrainTextureBitmap =
+                    bitmap;
+            }
+
+            RenderMap();
         }
 
         public void FitMapView()
@@ -237,7 +287,14 @@ namespace Ensemble.Controls
                 return;
             }
 
-            DrawTerrainHeightMap();
+            if (_terrainTextureBitmap != null)
+            {
+                DrawTerrainTextureMap();
+            }
+            else
+            {
+                DrawTerrainHeightMap();
+            }
 
             DrawGrid();
 
@@ -469,6 +526,116 @@ namespace Ensemble.Controls
                 terrainImage);
         }
 
+        private void DrawTerrainTextureMap()
+        {
+            if (_terrainTextureBitmap == null ||
+                _map == null)
+            {
+                return;
+            }
+
+            float terrainMinX;
+            float terrainMinZ;
+            float terrainMaxX;
+            float terrainMaxZ;
+
+
+            if (_terrainHeightMap != null)
+            {
+                // Best source of the true terrain footprint.
+                terrainMinX =
+                    _terrainHeightMap.WorldMin.X;
+
+                terrainMinZ =
+                    _terrainHeightMap.WorldMin.Z;
+
+                terrainMaxX =
+                    _terrainHeightMap.WorldMax.X;
+
+                terrainMaxZ =
+                    _terrainHeightMap.WorldMax.Z;
+            }
+            else
+            {
+                terrainMinX =
+                    _map.MinX;
+
+                terrainMinZ =
+                    _map.MinZ;
+
+                terrainMaxX =
+                    _map.MaxX;
+
+                terrainMaxZ =
+                    _map.MaxZ;
+            }
+
+
+            Point topLeft =
+                WorldToScreen(
+                    terrainMinX,
+                    terrainMaxZ);
+
+            Point bottomRight =
+                WorldToScreen(
+                    terrainMaxX,
+                    terrainMinZ);
+
+            double left =
+                Math.Min(
+                    topLeft.X,
+                    bottomRight.X);
+
+            double top =
+                Math.Min(
+                    topLeft.Y,
+                    bottomRight.Y);
+
+            double width =
+                Math.Abs(
+                    bottomRight.X -
+                    topLeft.X);
+
+            double height =
+                Math.Abs(
+                    bottomRight.Y -
+                    topLeft.Y);
+
+
+            Image terrainImage =
+                new Image
+                {
+                    Source =
+                        _terrainTextureBitmap,
+
+                    Width =
+                        width,
+
+                    Height =
+                        height,
+
+                    Stretch =
+                        Stretch.Fill,
+
+                    Opacity =
+                        0.92,
+
+                    IsHitTestVisible =
+                        false
+                };
+
+            SetLeft(
+                terrainImage,
+                left);
+
+            SetTop(
+                terrainImage,
+                top);
+
+            Children.Add(
+                terrainImage);
+        }
+
         private void DrawPlacementPreview()
         {
             if (!_isPlacementMode ||
@@ -663,8 +830,7 @@ namespace Ensemble.Controls
                     StrokeThickness =
                         1,
 
-                    Fill =
-                    _terrainHeightBitmap == null
+                    Fill = _terrainHeightBitmap == null && _terrainTextureBitmap == null 
                     ? new SolidColorBrush(
                         Color.FromRgb(30,30,30)) : Brushes.Transparent,
 
