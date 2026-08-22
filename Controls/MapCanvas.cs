@@ -394,22 +394,27 @@ namespace Ensemble.Controls
                 return;
             }
 
+            float terrainMinX =
+                _terrainHeightMap.WorldMin.X;
+
+            float terrainMinZ =
+                _terrainHeightMap.WorldMin.Z;
+
             float terrainMaxX =
-                _terrainHeightMap.WorldWidth;
+                _terrainHeightMap.WorldMax.X;
 
             float terrainMaxZ =
-                _terrainHeightMap.WorldDepth;
+                _terrainHeightMap.WorldMax.Z;
 
             Point topLeft =
                 WorldToScreen(
-                    0,
+                    terrainMinX,
                     terrainMaxZ);
 
             Point bottomRight =
                 WorldToScreen(
                     terrainMaxX,
-                    0);
-
+                    terrainMinZ);
             double left =
                 Math.Min(
                     topLeft.X,

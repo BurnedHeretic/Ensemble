@@ -173,54 +173,46 @@ namespace Ensemble.Services
                 32;
 
 
-            for (int z = 0;
-                 z < numXVerts;
-                 z++)
+            for (int x = 0;
+                x < numXVerts;
+                x++)
             {
-                for (int x = 0;
-                     x < numXVerts;
-                     x++)
+                for (int z = 0;
+                     z < numXVerts;
+                     z++)
                 {
-                    uint tiledIndex =
-                        XgAddress2DTiledOffset(
-                            (uint)x,
-                            (uint)z,
-                            (uint)numXVerts,
-                            4);
+                    // Halo Wars DE stores the position grid
+                    // column-major:
+                    //
+                    // raw index = X * gridHeight + Z
 
-                    if (tiledIndex >=
-                        vertexCount)
-                    {
-                        throw new InvalidDataException(
-                            "XTD terrain tiled address points " +
-                            "outside the position atlas.\n\n" +
-                            $"X: {x}\n" +
-                            $"Z: {z}\n" +
-                            $"Tiled index: {tiledIndex}\n" +
-                            $"Vertex count: {vertexCount}");
-                    }
+                    int rawIndex =
+                        checked(
+                            x *
+                            numXVerts +
+                            z);
 
                     int sourceOffset =
                         checked(
                             positionDataOffset +
-                            (int)tiledIndex *
+                            rawIndex *
                             4);
 
                     uint packed =
-                        ReadUInt32(
+                        ReadUInt32LittleEndian(
                             atlasData,
                             sourceOffset);
 
-                    // Halo Wars TerrainDeformer::unpackVisualToPos:
+                    // Halo Wars DE PC:
                     //
-                    // Y occupies bits 11-20.
+                    // X = bits 20-29
+                    // Y = bits 10-19
+                    // Z = bits  0-9
                     //
-                    // Although the texture format is named R11G11B10,
-                    // Ensemble deliberately follows the game's own
-                    // unpacking code here.
+                    // Remaining upper 2 bits are unused here.
 
                     uint encodedY =
-                        (packed >> 11) &
+                        (packed >> 10) &
                         0x3FF;
 
                     float normalizedY =
@@ -231,6 +223,9 @@ namespace Ensemble.Services
                         normalizedY *
                         compressionRange.Y -
                         compressionMin.Y;
+
+                    // Ensemble's bitmap/model representation is
+                    // conventional row-major Z,X.
 
                     int destinationIndex =
                         checked(
@@ -286,57 +281,15 @@ namespace Ensemble.Services
             };
         }
 
-
-        // =========================================================
-        // XBOX 360 2D TILING
-        // =========================================================
-
-        private static uint XgAddress2DTiledOffset(
-            uint x,
-            uint y,
-            uint width,
-            uint texelPitch)
+        private static uint ReadUInt32LittleEndian(
+            byte[] data,
+            int offset)
         {
-            uint alignedWidth =
-                (width + 31u) &
-                ~31u;
-
-            uint logBpp =
-                (texelPitch >> 2) +
-                ((texelPitch >> 1) >>
-                 (int)(texelPitch >> 2));
-
-            uint macro =
-                ((x >> 5) +
-                 ((y >> 5) *
-                  (alignedWidth >> 5)))
-                <<
-                (int)(logBpp + 7);
-
-            uint micro =
-                ((x & 7u) +
-                 ((y & 6u) << 2))
-                <<
-                (int)logBpp;
-
-            uint offset =
-                macro +
-                ((micro & ~15u) << 1) +
-                (micro & 15u) +
-                ((y & 8u) <<
-                 (int)(3 + logBpp)) +
-                ((y & 1u) << 4);
-
-            return
-                (((offset & ~511u) << 3) +
-                 ((offset & 448u) << 2) +
-                 (offset & 63u) +
-                 ((y & 16u) << 7) +
-                 (((((y & 8u) >> 2) +
-                    (x >> 3)) &
-                   3u) << 6))
-                >>
-                (int)logBpp;
+            return BinaryPrimitives
+                .ReadUInt32LittleEndian(
+                    data.AsSpan(
+                        offset,
+                        4));
         }
 
 
