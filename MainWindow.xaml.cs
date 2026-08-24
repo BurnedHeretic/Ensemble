@@ -3441,6 +3441,121 @@ namespace Ensemble
         }
 
         // =========================================================
+        // Terrain Display Mode
+        // ========================================================
+        private void TerrainTexture_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainMode(
+                Ensemble.Controls
+                    .TerrainDisplayMode.Texture);
+        }
+
+        private void TerrainHeightMap_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainMode(
+                Ensemble.Controls
+                    .TerrainDisplayMode.HeightMap);
+        }
+
+        private void TerrainHidden_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainMode(
+                Ensemble.Controls
+                    .TerrainDisplayMode.Hidden);
+        }
+
+        private void SetTerrainMode(
+            Ensemble.Controls.TerrainDisplayMode mode)
+        {
+            ScenarioMapCanvas
+                .SetTerrainDisplayMode(
+                    mode);
+
+            TerrainTextureMenuItem.IsChecked =
+                mode ==
+                Ensemble.Controls
+                    .TerrainDisplayMode.Texture;
+
+            TerrainHeightMapMenuItem.IsChecked =
+                mode ==
+                Ensemble.Controls
+                    .TerrainDisplayMode.HeightMap;
+
+            TerrainHiddenMenuItem.IsChecked =
+                mode ==
+                Ensemble.Controls
+                    .TerrainDisplayMode.Hidden;
+
+            StatusText.Text =
+                mode switch
+                {
+                    Ensemble.Controls.TerrainDisplayMode.Texture =>
+                        "Terrain view: XTT texture.",
+
+                    Ensemble.Controls.TerrainDisplayMode.HeightMap =>
+                        "Terrain view: XTD heightmap.",
+
+                    _ =>
+                        "Terrain view hidden."
+                };
+        }
+
+        private void TerrainGrid_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ScenarioMapCanvas.SetGridVisible(
+                TerrainGridMenuItem.IsChecked);
+
+            StatusText.Text =
+                TerrainGridMenuItem.IsChecked
+                    ? "Terrain grid visible."
+                    : "Terrain grid hidden.";
+        }
+
+        private void TerrainOpacity50_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ScenarioMapCanvas
+                .SetTerrainOpacity(
+                    0.50);
+
+            StatusText.Text =
+                "Terrain opacity: 50%.";
+        }
+
+        private void TerrainOpacity75_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ScenarioMapCanvas
+                .SetTerrainOpacity(
+                    0.75);
+
+            StatusText.Text =
+                "Terrain opacity: 75%.";
+        }
+
+        private void TerrainOpacity100_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            ScenarioMapCanvas
+                .SetTerrainOpacity(
+                    1.0);
+
+            StatusText.Text =
+                "Terrain opacity: 100%.";
+        }
+
+        // =========================================================
         // File - Save / Save As
         // ========================================================
 

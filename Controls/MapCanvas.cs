@@ -24,6 +24,18 @@ namespace Ensemble.Controls
         private TerrainTextureMap?
             _terrainTextureMap;
 
+        private TerrainDisplayMode
+            _terrainDisplayMode =
+        TerrainDisplayMode.Texture;
+
+        private bool
+            _showGrid =
+                true;
+
+        private double
+            _terrainOpacity =
+                0.92;
+
         private BitmapSource?
             _terrainTextureBitmap;
 
@@ -71,6 +83,7 @@ namespace Ensemble.Controls
             string.Empty;
 
         private Vector3 _placementPreviewPosition;
+
 
         public event EventHandler<ScenarioSelectionChangedEventArgs>?
             SelectionChanged;
@@ -287,16 +300,44 @@ namespace Ensemble.Controls
                 return;
             }
 
-            if (_terrainTextureBitmap != null)
+            switch (_terrainDisplayMode)
             {
-                DrawTerrainTextureMap();
-            }
-            else
-            {
-                DrawTerrainHeightMap();
+                case TerrainDisplayMode.Texture:
+
+                    if (_terrainTextureBitmap != null)
+                    {
+                        DrawTerrainTextureMap();
+                    }
+                    else
+                    {
+                        DrawTerrainHeightMap();
+                    }
+
+                    break;
+
+
+                case TerrainDisplayMode.HeightMap:
+
+                    if (_terrainHeightBitmap != null)
+                    {
+                        DrawTerrainHeightMap();
+                    }
+                    else if (_terrainTextureBitmap != null)
+                    {
+                        DrawTerrainTextureMap();
+                    }
+
+                    break;
+
+
+                case TerrainDisplayMode.Hidden:
+                    break;
             }
 
-            DrawGrid();
+            if (_showGrid)
+            {
+                DrawGrid();
+            }
 
             DrawPaths();
 
@@ -507,8 +548,7 @@ namespace Ensemble.Controls
                     Stretch =
                         Stretch.Fill,
 
-                    Opacity =
-                        0.78,
+                    Opacity = _terrainOpacity,
 
                     IsHitTestVisible =
                         false
@@ -617,8 +657,7 @@ namespace Ensemble.Controls
                     Stretch =
                         Stretch.Fill,
 
-                    Opacity =
-                        0.92,
+                    Opacity = _terrainOpacity,
 
                     IsHitTestVisible =
                         false
@@ -634,6 +673,36 @@ namespace Ensemble.Controls
 
             Children.Add(
                 terrainImage);
+        }
+
+        public void SetTerrainDisplayMode(
+            TerrainDisplayMode mode)
+        {
+            _terrainDisplayMode =
+                mode;
+
+            RenderMap();
+        }
+
+        public void SetGridVisible(
+            bool visible)
+        {
+            _showGrid =
+                visible;
+
+            RenderMap();
+        }
+
+        public void SetTerrainOpacity(
+            double opacity)
+        {
+            _terrainOpacity =
+                Math.Clamp(
+                    opacity,
+                    0.1,
+                    1.0);
+
+            RenderMap();
         }
 
         private void DrawPlacementPreview()
@@ -811,6 +880,10 @@ namespace Ensemble.Controls
             if (_map == null)
                 return;
 
+            bool terrainVisible =
+                    _terrainDisplayMode != TerrainDisplayMode.Hidden &&
+                    (_terrainTextureBitmap != null || _terrainHeightBitmap != null);
+
             Rectangle border =
                 new Rectangle
                 {
@@ -830,13 +903,12 @@ namespace Ensemble.Controls
                     StrokeThickness =
                         1,
 
-                    Fill = _terrainHeightBitmap == null && _terrainTextureBitmap == null 
-                    ? new SolidColorBrush(
-                        Color.FromRgb(30,30,30)) : Brushes.Transparent,
+                    Fill = terrainVisible ? Brushes.Transparent : new SolidColorBrush(
+                        Color.FromRgb(30, 30, 30)),
 
                     IsHitTestVisible =
                         false
-                };
+                }; 
 
             SetLeft(
                 border,
@@ -3022,8 +3094,7 @@ namespace Ensemble.Controls
             }
         }
 
-        private static bool CanRotateItem(
-    object item)
+        private static bool CanRotateItem(object item)
         {
             return
                 item is ScenarioObject ||
@@ -3317,6 +3388,13 @@ namespace Ensemble.Controls
                 1,
                 ActualHeight -
                 MarginSize * 2);
+    }
+
+    public enum TerrainDisplayMode
+    {
+        Texture,
+        HeightMap,
+        Hidden
     }
 
     public sealed class ScenarioSelectionChangedEventArgs :
