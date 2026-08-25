@@ -36,6 +36,45 @@ namespace Ensemble.Controls
             _terrainOpacity =
                 0.92;
 
+        private TerrainSculptMode
+    _terrainSculptMode =
+        TerrainSculptMode.None;
+
+        private float
+            _terrainBrushRadius =
+                40.0f;
+
+        private float
+            _terrainBrushStrength =
+                3.0f;
+
+        private bool
+            _terrainBrushVisible;
+
+        private Vector3
+            _terrainBrushWorldPosition;
+
+        private bool
+            _isTerrainSculpting;
+
+        private Vector3
+            _lastTerrainStampPosition;
+
+        private readonly Dictionary<int, float>
+            _terrainStrokeBefore =
+                new();
+
+        private float[]?
+            _terrainOriginalHeights;
+
+        private readonly Stack<TerrainPreviewStroke>
+            _terrainPreviewUndo =
+                new();
+
+        private readonly Stack<TerrainPreviewStroke>
+            _terrainPreviewRedo =
+                new();
+
         private BitmapSource?
             _terrainTextureBitmap;
 
@@ -115,6 +154,21 @@ namespace Ensemble.Controls
         public bool IsObjectPlacementActive =>
             _isPlacementMode;
 
+        public bool IsTerrainSculptActive =>
+            _terrainSculptMode != TerrainSculptMode.None;
+
+        public bool HasTerrainPreviewChanges =>
+            _terrainPreviewUndo.Count >
+            0;
+
+        public bool CanUndoTerrainPreview =>
+            _terrainPreviewUndo.Count >
+            0;
+
+        public bool CanRedoTerrainPreview =>
+            _terrainPreviewRedo.Count >
+            0;
+
         private sealed class PathPointHandle
         {
             public PathPointHandle(
@@ -134,6 +188,55 @@ namespace Ensemble.Controls
             }
 
             public int Index
+            {
+                get;
+            }
+        }
+
+        private sealed class TerrainPreviewStroke
+        {
+            public TerrainPreviewStroke(
+                IReadOnlyList<TerrainHeightChange> changes)
+            {
+                Changes =
+                    changes;
+            }
+
+            public IReadOnlyList<TerrainHeightChange> Changes
+            {
+                get;
+            }
+        }
+
+
+        private readonly struct TerrainHeightChange
+        {
+            public TerrainHeightChange(
+                int index,
+                float before,
+                float after)
+            {
+                Index =
+                    index;
+
+                Before =
+                    before;
+
+                After =
+                    after;
+            }
+
+            public int Index
+            {
+                get;
+            }
+
+            public float Before
+            {
+                get;
+            }
+
+            public float After
             {
                 get;
             }
@@ -361,13 +464,13 @@ namespace Ensemble.Controls
                     start);
             }
 
+            DrawTerrainBrushPreview();
             DrawPlacementPreview();
             DrawMapTitle();
             DrawLegend();
         }
 
-        public void SetTerrainHeightMap(
-            TerrainHeightMap? terrain)
+        public void SetTerrainHeightMap(TerrainHeightMap? terrain)
         {
             _terrainHeightMap =
                 terrain;
@@ -378,11 +481,26 @@ namespace Ensemble.Controls
                     : BuildTerrainHeightBitmap(
                         terrain);
 
+            _terrainOriginalHeights =
+                terrain == null
+                    ? null
+                    : terrain.Heights.ToArray();
+
+            _terrainPreviewUndo.Clear();
+            _terrainPreviewRedo.Clear();
+
+            _terrainStrokeBefore.Clear();
+
+            _isTerrainSculpting =
+                false;
+
+            _terrainBrushVisible =
+                false;
+
             RenderMap();
         }
 
-        private static BitmapSource BuildTerrainHeightBitmap(
-            TerrainHeightMap terrain)
+        private static BitmapSource BuildTerrainHeightBitmap(TerrainHeightMap terrain)
         {
             int width =
                 terrain.Width;
@@ -401,19 +519,62 @@ namespace Ensemble.Controls
                         stride *
                         height)];
 
+
+            float minHeight =
+                float.MaxValue;
+
+            float maxHeight =
+                float.MinValue;
+
+            foreach (float value
+                     in terrain.Heights)
+            {
+                if (!float.IsFinite(
+                        value))
+                {
+                    continue;
+                }
+
+                if (value <
+                    minHeight)
+                {
+                    minHeight =
+                        value;
+                }
+
+                if (value >
+                    maxHeight)
+                {
+                    maxHeight =
+                        value;
+                }
+            }
+
+
+            if (minHeight ==
+                    float.MaxValue ||
+                maxHeight ==
+                    float.MinValue)
+            {
+                minHeight =
+                    0;
+
+                maxHeight =
+                    1;
+            }
+
+
             float heightRange =
                 Math.Max(
                     0.0001f,
-                    terrain.MaxHeight -
-                    terrain.MinHeight);
+                    maxHeight -
+                    minHeight);
 
 
             for (int z = 0;
                  z < height;
                  z++)
             {
-                // World Z increases upward,
-                // bitmap Y increases downward.
                 int bitmapY =
                     height -
                     1 -
@@ -431,7 +592,7 @@ namespace Ensemble.Controls
 
                     float normalized =
                         (worldHeight -
-                         terrain.MinHeight) /
+                         minHeight) /
                         heightRange;
 
                     normalized =
@@ -452,7 +613,6 @@ namespace Ensemble.Controls
                         x *
                         4;
 
-                    // BGRA
                     pixels[p] =
                         shade;
 
@@ -1547,15 +1707,53 @@ namespace Ensemble.Controls
         // Mouse Clicks
         // =========================================================
 
-        private void MapCanvas_PreviewMouseLeftButtonDown(
-            object sender,
-            MouseButtonEventArgs e)
+        private void MapCanvas_PreviewMouseLeftButtonDown(object sender,MouseButtonEventArgs e)
         {
+            if (_terrainSculptMode !=
+                    TerrainSculptMode.None &&
+                _terrainHeightMap != null)
+            {
+                Point terrainMouse =
+                    e.GetPosition(
+                        this);
+
+                (float terrainX, float terrainZ) =
+                    ScreenToWorld(
+                        terrainMouse);
+
+                _terrainBrushWorldPosition =
+                    new Vector3(
+                        terrainX,
+                        0,
+                        terrainZ);
+
+                _terrainBrushVisible =
+                    IsInsideTerrain(
+                        terrainX,
+                        terrainZ);
+
+                if (_terrainBrushVisible)
+                {
+                    BeginTerrainStroke(
+                        terrainX,
+                        terrainZ);
+                }
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+
             if (!_isPlacementMode ||
                 _map == null)
             {
                 return;
             }
+
+            // keep the rest of your existing
+            // object-placement code unchanged...
 
             Point mouse =
                 e.GetPosition(
@@ -1804,14 +2002,625 @@ namespace Ensemble.Controls
                 false;
 
             Cursor =
-                _isPlacementMode
-                    ? Cursors.Cross
-                    : null;
+                _isPlacementMode ||
+                _terrainSculptMode !=
+                TerrainSculptMode.None
+                ? Cursors.Cross
+                : null;
 
             if (IsMouseCaptured)
             {
                 ReleaseMouseCapture();
             }
+        }
+
+        // ========================================================
+        // Sculpt Controls
+        // ========================================================
+        public bool SetTerrainSculptMode(TerrainSculptMode mode)
+        {
+            if (mode !=
+                    TerrainSculptMode.None &&
+                _terrainHeightMap == null)
+            {
+                return false;
+            }
+
+            if (_isTerrainSculpting)
+            {
+                FinishTerrainStroke();
+            }
+
+            _terrainSculptMode =
+                mode;
+
+            _terrainBrushVisible =
+                false;
+
+            Cursor =
+                mode ==
+                    TerrainSculptMode.None
+                    ? null
+                    : Cursors.Cross;
+
+            RenderMap();
+
+            return true;
+        }
+
+
+        public void SetTerrainBrushRadius(
+            float radius)
+        {
+            _terrainBrushRadius =
+                Math.Clamp(
+                    radius,
+                    2.0f,
+                    500.0f);
+
+            RenderMap();
+        }
+
+
+        public void SetTerrainBrushStrength(
+            float strength)
+        {
+            _terrainBrushStrength =
+                Math.Clamp(
+                    strength,
+                    0.01f,
+                    100.0f);
+        }
+
+        private bool IsInsideTerrain(
+            float worldX,
+            float worldZ)
+        {
+            if (_terrainHeightMap == null)
+                return false;
+
+            return
+                worldX >=
+                    _terrainHeightMap.WorldMin.X &&
+                worldX <=
+                    _terrainHeightMap.WorldMax.X &&
+                worldZ >=
+                    _terrainHeightMap.WorldMin.Z &&
+                worldZ <=
+                    _terrainHeightMap.WorldMax.Z;
+        }
+
+        private void BeginTerrainStroke(
+            float worldX,
+            float worldZ)
+        {
+            if (_terrainHeightMap == null ||
+                _terrainSculptMode ==
+                    TerrainSculptMode.None)
+            {
+                return;
+            }
+
+            if (!IsInsideTerrain(
+                    worldX,
+                    worldZ))
+            {
+                return;
+            }
+
+            _terrainStrokeBefore.Clear();
+
+            _isTerrainSculpting =
+                true;
+
+            _lastTerrainStampPosition =
+                new Vector3(
+                    worldX,
+                    0,
+                    worldZ);
+
+            CaptureMouse();
+
+            ApplyTerrainBrushStamp(
+                worldX,
+                worldZ);
+        }
+
+        private void ApplyTerrainBrushStamp(
+            float centreX,
+            float centreZ)
+        {
+            if (_terrainHeightMap == null)
+                return;
+
+            TerrainHeightMap terrain =
+                _terrainHeightMap;
+
+            if (terrain.Width <
+                    2 ||
+                terrain.Height <
+                    2)
+            {
+                return;
+            }
+
+
+            float worldSpanX =
+                terrain.WorldMax.X -
+                terrain.WorldMin.X;
+
+            float worldSpanZ =
+                terrain.WorldMax.Z -
+                terrain.WorldMin.Z;
+
+            if (worldSpanX <=
+                    0 ||
+                worldSpanZ <=
+                    0)
+            {
+                return;
+            }
+
+
+            float stepX =
+                worldSpanX /
+                (terrain.Width - 1);
+
+            float stepZ =
+                worldSpanZ /
+                (terrain.Height - 1);
+
+
+            int minX =
+                Math.Clamp(
+                    (int)MathF.Floor(
+                        (centreX -
+                         _terrainBrushRadius -
+                         terrain.WorldMin.X) /
+                        stepX),
+                    0,
+                    terrain.Width - 1);
+
+            int maxX =
+                Math.Clamp(
+                    (int)MathF.Ceiling(
+                        (centreX +
+                         _terrainBrushRadius -
+                         terrain.WorldMin.X) /
+                        stepX),
+                    0,
+                    terrain.Width - 1);
+
+            int minZ =
+                Math.Clamp(
+                    (int)MathF.Floor(
+                        (centreZ -
+                         _terrainBrushRadius -
+                         terrain.WorldMin.Z) /
+                        stepZ),
+                    0,
+                    terrain.Height - 1);
+
+            int maxZ =
+                Math.Clamp(
+                    (int)MathF.Ceiling(
+                        (centreZ +
+                         _terrainBrushRadius -
+                         terrain.WorldMin.Z) /
+                        stepZ),
+                    0,
+                    terrain.Height - 1);
+
+
+            float direction =
+                _terrainSculptMode ==
+                    TerrainSculptMode.Raise
+                    ? 1.0f
+                    : -1.0f;
+
+
+            for (int z = minZ;
+                 z <= maxZ;
+                 z++)
+            {
+                float vertexWorldZ =
+                    terrain.WorldMin.Z +
+                    z *
+                    stepZ;
+
+                for (int x = minX;
+                     x <= maxX;
+                     x++)
+                {
+                    float vertexWorldX =
+                        terrain.WorldMin.X +
+                        x *
+                        stepX;
+
+                    float dx =
+                        vertexWorldX -
+                        centreX;
+
+                    float dz =
+                        vertexWorldZ -
+                        centreZ;
+
+                    float distance =
+                        MathF.Sqrt(
+                            dx * dx +
+                            dz * dz);
+
+                    if (distance >
+                        _terrainBrushRadius)
+                    {
+                        continue;
+                    }
+
+
+                    float t =
+                        1.0f -
+                        distance /
+                        _terrainBrushRadius;
+
+                    // Smoothstep falloff.
+                    float falloff =
+                        t *
+                        t *
+                        (3.0f -
+                         2.0f *
+                         t);
+
+                    int index =
+                        checked(
+                            z *
+                            terrain.Width +
+                            x);
+
+                    float oldValue =
+                        terrain.Heights[
+                            index];
+
+                    if (!_terrainStrokeBefore
+                            .ContainsKey(
+                                index))
+                    {
+                        _terrainStrokeBefore[
+                            index] =
+                                oldValue;
+                    }
+
+                    terrain.Heights[
+                        index] =
+                            oldValue +
+                            direction *
+                            _terrainBrushStrength *
+                            falloff;
+                }
+            }
+
+
+            RefreshTerrainHeightBitmap();
+        }
+
+        private void RefreshTerrainHeightBitmap()
+        {
+            if (_terrainHeightMap == null)
+                return;
+
+            _terrainHeightBitmap =
+                BuildTerrainHeightBitmap(
+                    _terrainHeightMap);
+
+            RenderMap();
+        }
+
+        private void FinishTerrainStroke(bool releaseCapture = true)
+        {
+            if (!_isTerrainSculpting)
+                return;
+
+            _isTerrainSculpting =
+                false;
+
+
+            List<TerrainHeightChange> changes =
+                new();
+
+            if (_terrainHeightMap != null)
+            {
+                foreach (KeyValuePair<int, float> entry
+                         in _terrainStrokeBefore)
+                {
+                    float after =
+                        _terrainHeightMap.Heights[
+                            entry.Key];
+
+                    if (MathF.Abs(
+                            after -
+                            entry.Value) <
+                        0.000001f)
+                    {
+                        continue;
+                    }
+
+                    changes.Add(
+                        new TerrainHeightChange(
+                            entry.Key,
+                            entry.Value,
+                            after));
+                }
+            }
+
+
+            _terrainStrokeBefore.Clear();
+
+
+            if (changes.Count >
+                0)
+            {
+                _terrainPreviewUndo.Push(
+                    new TerrainPreviewStroke(
+                        changes));
+
+                _terrainPreviewRedo.Clear();
+            }
+
+
+            Cursor =
+                _terrainSculptMode !=
+                    TerrainSculptMode.None
+                    ? Cursors.Cross
+                    : null;
+
+
+            if (releaseCapture &&
+                IsMouseCaptured)
+            {
+                ReleaseMouseCapture();
+            }
+        }
+
+        public bool UndoTerrainPreview()
+        {
+            if (_terrainHeightMap == null ||
+                _terrainPreviewUndo.Count ==
+                    0)
+            {
+                return false;
+            }
+
+            TerrainPreviewStroke stroke =
+                _terrainPreviewUndo.Pop();
+
+            foreach (TerrainHeightChange change
+                     in stroke.Changes)
+            {
+                _terrainHeightMap.Heights[
+                    change.Index] =
+                        change.Before;
+            }
+
+            _terrainPreviewRedo.Push(
+                stroke);
+
+            RefreshTerrainHeightBitmap();
+
+            return true;
+        }
+
+
+        public bool RedoTerrainPreview()
+        {
+            if (_terrainHeightMap == null ||
+                _terrainPreviewRedo.Count ==
+                    0)
+            {
+                return false;
+            }
+
+            TerrainPreviewStroke stroke =
+                _terrainPreviewRedo.Pop();
+
+            foreach (TerrainHeightChange change
+                     in stroke.Changes)
+            {
+                _terrainHeightMap.Heights[
+                    change.Index] =
+                        change.After;
+            }
+
+            _terrainPreviewUndo.Push(
+                stroke);
+
+            RefreshTerrainHeightBitmap();
+
+            return true;
+        }
+
+
+        public bool ResetTerrainPreview()
+        {
+            if (_terrainHeightMap == null ||
+                _terrainOriginalHeights == null)
+            {
+                return false;
+            }
+
+            if (_terrainOriginalHeights.Length !=
+                _terrainHeightMap.Heights.Length)
+            {
+                return false;
+            }
+
+            Array.Copy(
+                _terrainOriginalHeights,
+                _terrainHeightMap.Heights,
+                _terrainOriginalHeights.Length);
+
+            _terrainPreviewUndo.Clear();
+            _terrainPreviewRedo.Clear();
+
+            RefreshTerrainHeightBitmap();
+
+            return true;
+        }
+
+        private void DrawTerrainBrushPreview()
+        {
+            if (_terrainSculptMode ==
+                    TerrainSculptMode.None ||
+                !_terrainBrushVisible ||
+                _terrainHeightMap == null)
+            {
+                return;
+            }
+
+
+            float centreX =
+                _terrainBrushWorldPosition.X;
+
+            float centreZ =
+                _terrainBrushWorldPosition.Z;
+
+
+            Point leftPoint =
+                WorldToScreen(
+                    centreX -
+                    _terrainBrushRadius,
+                    centreZ);
+
+            Point rightPoint =
+                WorldToScreen(
+                    centreX +
+                    _terrainBrushRadius,
+                    centreZ);
+
+            Point topPoint =
+                WorldToScreen(
+                    centreX,
+                    centreZ +
+                    _terrainBrushRadius);
+
+            Point bottomPoint =
+                WorldToScreen(
+                    centreX,
+                    centreZ -
+                    _terrainBrushRadius);
+
+
+            double width =
+                Math.Abs(
+                    rightPoint.X -
+                    leftPoint.X);
+
+            double height =
+                Math.Abs(
+                    bottomPoint.Y -
+                    topPoint.Y);
+
+
+            Brush colour =
+                _terrainSculptMode ==
+                    TerrainSculptMode.Raise
+                    ? Brushes.LimeGreen
+                    : Brushes.OrangeRed;
+
+
+            Ellipse brush =
+                new Ellipse
+                {
+                    Width =
+                        width,
+
+                    Height =
+                        height,
+
+                    Stroke =
+                        colour,
+
+                    StrokeThickness =
+                        2,
+
+                    StrokeDashArray =
+                        new DoubleCollection
+                        {
+                    5,
+                    3
+                        },
+
+                    Fill =
+                        new SolidColorBrush(
+                            Color.FromArgb(
+                                25,
+                                255,
+                                255,
+                                255)),
+
+                    IsHitTestVisible =
+                        false
+                };
+
+
+            SetLeft(
+                brush,
+                leftPoint.X);
+
+            SetTop(
+                brush,
+                topPoint.Y);
+
+            Children.Add(
+                brush);
+
+
+            Point centre =
+                WorldToScreen(
+                    centreX,
+                    centreZ);
+
+            TextBlock label =
+                new TextBlock
+                {
+                    Text =
+                        $"{_terrainSculptMode} | " +
+                        $"R {_terrainBrushRadius:0.#} | " +
+                        $"S {_terrainBrushStrength:0.##}",
+
+                    Foreground =
+                        Brushes.White,
+
+                    Background =
+                        new SolidColorBrush(
+                            Color.FromArgb(
+                                210,
+                                20,
+                                20,
+                                20)),
+
+                    Padding =
+                        new Thickness(
+                            5,
+                            2,
+                            5,
+                            2),
+
+                    IsHitTestVisible =
+                        false
+                };
+
+
+            SetLeft(
+                label,
+                centre.X +
+                12);
+
+            SetTop(
+                label,
+                centre.Y +
+                12);
+
+            Children.Add(
+                label);
         }
 
         // =========================================================
@@ -2437,6 +3246,95 @@ namespace Ensemble.Controls
                 return;
             }
 
+            // =====================================================
+            // TERRAIN SCULPTING
+            // =====================================================
+
+            if (_terrainSculptMode !=
+                    TerrainSculptMode.None &&
+                _terrainHeightMap != null)
+            {
+                Point terrainMouse =
+                    e.GetPosition(
+                        this);
+
+                (float terrainWorldX, float terrainWorldZ) =
+                    ScreenToWorld(
+                        terrainMouse);
+
+                _terrainBrushWorldPosition =
+                    new Vector3(
+                        terrainWorldX,
+                        0,
+                        terrainWorldZ);
+
+                _terrainBrushVisible =
+                    IsInsideTerrain(
+                        terrainWorldX,
+                        terrainWorldZ);
+
+
+                bool stamped =
+                    false;
+
+
+                if (_isTerrainSculpting)
+                {
+                    if (e.LeftButton !=
+                        MouseButtonState.Pressed)
+                    {
+                        FinishTerrainStroke();
+
+                        RenderMap();
+
+                        return;
+                    }
+
+
+                    if (_terrainBrushVisible)
+                    {
+                        Vector3 currentStamp =
+                            new Vector3(
+                                terrainWorldX,
+                                0,
+                                terrainWorldZ);
+
+                        float minimumStampDistance =
+                            Math.Max(
+                                1.0f,
+                                _terrainBrushRadius *
+                                0.15f);
+
+                        if (Vector3.Distance(
+                                currentStamp,
+                                _lastTerrainStampPosition) >=
+                            minimumStampDistance)
+                        {
+                            _lastTerrainStampPosition =
+                                currentStamp;
+
+                            ApplyTerrainBrushStamp(
+                                terrainWorldX,
+                                terrainWorldZ);
+
+                            stamped =
+                                true;
+                        }
+                    }
+                }
+
+
+                if (!stamped)
+                {
+                    RenderMap();
+                }
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
 
             // Placement
 
@@ -2605,6 +3503,17 @@ namespace Ensemble.Controls
             object sender,
             MouseButtonEventArgs e)
         {
+
+            if (_isTerrainSculpting)
+            {
+                FinishTerrainStroke();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
             if (_isDraggingPathPoint)
             {
                 FinishPathPointDrag();
@@ -2637,6 +3546,12 @@ namespace Ensemble.Controls
                     _isPlacementMode
                         ? Cursors.Cross
                         : null;
+            }
+
+            if (_isTerrainSculpting)
+            {
+                FinishTerrainStroke(
+                    releaseCapture: false);
             }
 
             if (_isDraggingPathPoint)
@@ -3395,6 +4310,13 @@ namespace Ensemble.Controls
         Texture,
         HeightMap,
         Hidden
+    }
+
+    public enum TerrainSculptMode
+    {
+        None,
+        Raise,
+        Lower
     }
 
     public sealed class ScenarioSelectionChangedEventArgs :

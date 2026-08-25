@@ -146,6 +146,81 @@
 
                 </MenuItem>
 
+                <Separator/>
+
+                <MenuItem Header="_Sculpt (Preview Only)">
+
+                    <MenuItem x:Name="TerrainSculptOffMenuItem"
+              Header="_Off"
+              IsCheckable="True"
+              IsChecked="True"
+              Click="TerrainSculptOff_Click"/>
+
+                    <MenuItem x:Name="TerrainSculptRaiseMenuItem"
+              Header="_Raise"
+              IsCheckable="True"
+              Click="TerrainSculptRaise_Click"/>
+
+                    <MenuItem x:Name="TerrainSculptLowerMenuItem"
+              Header="_Lower"
+              IsCheckable="True"
+              Click="TerrainSculptLower_Click"/>
+
+                </MenuItem>
+
+
+                <MenuItem Header="Brush _Radius">
+
+                    <MenuItem x:Name="TerrainRadius20MenuItem"
+              Header="20"
+              IsCheckable="True"
+              Click="TerrainRadius20_Click"/>
+
+                    <MenuItem x:Name="TerrainRadius40MenuItem"
+              Header="40"
+              IsCheckable="True"
+              IsChecked="True"
+              Click="TerrainRadius40_Click"/>
+
+                    <MenuItem x:Name="TerrainRadius80MenuItem"
+              Header="80"
+              IsCheckable="True"
+              Click="TerrainRadius80_Click"/>
+
+                </MenuItem>
+
+
+                <MenuItem Header="Brush _Strength">
+
+                    <MenuItem x:Name="TerrainStrength1MenuItem"
+              Header="1"
+              IsCheckable="True"
+              Click="TerrainStrength1_Click"/>
+
+                    <MenuItem x:Name="TerrainStrength3MenuItem"
+              Header="3"
+              IsCheckable="True"
+              IsChecked="True"
+              Click="TerrainStrength3_Click"/>
+
+                    <MenuItem x:Name="TerrainStrength8MenuItem"
+              Header="8"
+              IsCheckable="True"
+              Click="TerrainStrength8_Click"/>
+
+                </MenuItem>
+
+                <Separator/>
+
+                <MenuItem Header="Undo Sculpt Preview"
+          Click="TerrainUndoSculpt_Click"/>
+
+                <MenuItem Header="Redo Sculpt Preview"
+          Click="TerrainRedoSculpt_Click"/>
+
+                <MenuItem Header="Reset Sculpt Preview"
+          Click="TerrainResetSculpt_Click"/>
+
             </MenuItem>
 
             <MenuItem Header="_Tools">

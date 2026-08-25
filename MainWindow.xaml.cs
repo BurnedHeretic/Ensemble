@@ -167,6 +167,19 @@ namespace Ensemble
                 return;
             }
 
+            if (e.Key == Key.Escape &&
+                ScenarioMapCanvas.IsTerrainSculptActive)
+            {
+                SetTerrainSculptMode(
+                    Ensemble.Controls
+                        .TerrainSculptMode.None);
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
             // Ctrl + Shift + S
             // Save As
             if (Keyboard.Modifiers ==
@@ -243,6 +256,28 @@ namespace Ensemble
                 return;
             }
 
+            if (Keyboard.Modifiers ==
+                ModifierKeys.Control &&
+                e.Key == Key.Z && ScenarioMapCanvas.IsTerrainSculptActive)
+            {
+                if (ScenarioMapCanvas
+                    .UndoTerrainPreview())
+                {
+                    StatusText.Text =
+                        "Undo terrain sculpt preview.";
+                }
+                else
+                {
+                    StatusText.Text =
+                        "No terrain sculpt preview to undo.";
+                }
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
             // Ctrl + Z
             // Undo
             if (Keyboard.Modifiers ==
@@ -251,6 +286,28 @@ namespace Ensemble
                     Key.Z)
             {
                 UndoLastMove();
+
+                e.Handled =
+                    true;
+
+                return;
+            }
+
+            if (Keyboard.Modifiers ==
+                ModifierKeys.Control &&
+                e.Key == Key.Y && ScenarioMapCanvas.IsTerrainSculptActive)
+            {
+                if (ScenarioMapCanvas
+                    .RedoTerrainPreview())
+                {
+                    StatusText.Text =
+                        "Redo terrain sculpt preview.";
+                }
+                else
+                {
+                    StatusText.Text =
+                        "No terrain sculpt preview to redo.";
+                }
 
                 e.Handled =
                     true;
@@ -3441,7 +3498,7 @@ namespace Ensemble
         }
 
         // =========================================================
-        // Terrain Display Mode
+        // Terrain
         // ========================================================
         private void TerrainTexture_Click(
             object sender,
@@ -3504,6 +3561,238 @@ namespace Ensemble
                     _ =>
                         "Terrain view hidden."
                 };
+        }
+
+        private void TerrainSculptOff_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainSculptMode(
+                Ensemble.Controls
+                    .TerrainSculptMode.None);
+        }
+
+
+        private void TerrainSculptRaise_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainSculptMode(
+                Ensemble.Controls
+                    .TerrainSculptMode.Raise);
+        }
+
+
+        private void TerrainSculptLower_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainSculptMode(
+                Ensemble.Controls
+                    .TerrainSculptMode.Lower);
+        }
+
+        private void SetTerrainSculptMode(Ensemble.Controls.TerrainSculptMode mode)
+        {
+            if (mode !=
+                Ensemble.Controls
+                    .TerrainSculptMode.None)
+            {
+                // Sculpting is easiest to see against
+                // the live XTD heightmap.
+                SetTerrainMode(
+                    Ensemble.Controls
+                        .TerrainDisplayMode.HeightMap);
+            }
+
+
+            if (!ScenarioMapCanvas
+                    .SetTerrainSculptMode(
+                        mode))
+            {
+                MessageBox.Show(
+                    this,
+                    "No XTD terrain heightmap is currently loaded.",
+                    "Terrain Sculpting",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                return;
+            }
+
+
+            TerrainSculptOffMenuItem.IsChecked =
+                mode ==
+                Ensemble.Controls
+                    .TerrainSculptMode.None;
+
+            TerrainSculptRaiseMenuItem.IsChecked =
+                mode ==
+                Ensemble.Controls
+                    .TerrainSculptMode.Raise;
+
+            TerrainSculptLowerMenuItem.IsChecked =
+                mode ==
+                Ensemble.Controls
+                    .TerrainSculptMode.Lower;
+
+
+            StatusText.Text =
+                mode switch
+                {
+                    Ensemble.Controls.TerrainSculptMode.Raise =>
+                        "Terrain sculpt: Raise (preview only).",
+
+                    Ensemble.Controls.TerrainSculptMode.Lower =>
+                        "Terrain sculpt: Lower (preview only).",
+
+                    _ =>
+                        "Terrain sculpt disabled."
+                };
+        }
+
+        private void SetTerrainRadius(
+    float radius)
+        {
+            ScenarioMapCanvas
+                .SetTerrainBrushRadius(
+                    radius);
+
+            TerrainRadius20MenuItem.IsChecked =
+                radius ==
+                20;
+
+            TerrainRadius40MenuItem.IsChecked =
+                radius ==
+                40;
+
+            TerrainRadius80MenuItem.IsChecked =
+                radius ==
+                80;
+
+            StatusText.Text =
+                $"Terrain brush radius: {radius:0}.";
+        }
+
+
+        private void TerrainRadius20_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainRadius(
+                20);
+        }
+
+        private void TerrainRadius40_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainRadius(
+                40);
+        }
+
+        private void TerrainRadius80_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainRadius(
+                80);
+        }
+
+        private void SetTerrainStrength(
+    float strength)
+        {
+            ScenarioMapCanvas
+                .SetTerrainBrushStrength(
+                    strength);
+
+            TerrainStrength1MenuItem.IsChecked =
+                strength ==
+                1;
+
+            TerrainStrength3MenuItem.IsChecked =
+                strength ==
+                3;
+
+            TerrainStrength8MenuItem.IsChecked =
+                strength ==
+                8;
+
+            StatusText.Text =
+                $"Terrain brush strength: {strength:0.##}.";
+        }
+
+
+        private void TerrainStrength1_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainStrength(
+                1);
+        }
+
+        private void TerrainStrength3_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainStrength(
+                3);
+        }
+
+        private void TerrainStrength8_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            SetTerrainStrength(
+                8);
+        }
+
+        private void TerrainUndoSculpt_Click(
+    object sender,
+    RoutedEventArgs e)
+        {
+            if (ScenarioMapCanvas
+                .UndoTerrainPreview())
+            {
+                StatusText.Text =
+                    "Undid terrain sculpt preview.";
+            }
+            else
+            {
+                StatusText.Text =
+                    "No terrain sculpt preview to undo.";
+            }
+        }
+
+
+        private void TerrainRedoSculpt_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (ScenarioMapCanvas
+                .RedoTerrainPreview())
+            {
+                StatusText.Text =
+                    "Redid terrain sculpt preview.";
+            }
+            else
+            {
+                StatusText.Text =
+                    "No terrain sculpt preview to redo.";
+            }
+        }
+
+
+        private void TerrainResetSculpt_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (ScenarioMapCanvas
+                .ResetTerrainPreview())
+            {
+                StatusText.Text =
+                    "Terrain sculpt preview reset.";
+            }
         }
 
         private void TerrainGrid_Click(
@@ -4014,6 +4303,8 @@ namespace Ensemble
             }
 
             _pendingAddTemplate = source;
+
+            SetTerrainSculptMode(Ensemble.Controls.TerrainSculptMode.None);
 
             ScenarioMapCanvas.BeginObjectPlacement(
                 source.Type);
