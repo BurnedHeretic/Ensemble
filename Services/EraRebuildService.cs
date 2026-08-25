@@ -14,31 +14,43 @@ namespace Ensemble.Services
             EraChunkInfo replacementChunk,
             byte[] replacementFileData)
         {
+            return BuildModifiedEra(
+                archive,
+                new Dictionary<int, byte[]>
+                {
+                    [replacementChunk.Index] =
+                        replacementFileData
+                });
+        }
+
+        public static byte[] BuildModifiedEra(
+                EraArchiveInfo archive,
+                IReadOnlyDictionary<int, byte[]>
+                replacementFiles)
+        {
             if (archive == null)
                 throw new ArgumentNullException(
                     nameof(archive));
 
-            if (replacementChunk == null)
+            if (replacementFiles == null)
+            {
                 throw new ArgumentNullException(
-                    nameof(replacementChunk));
+                    nameof(replacementFiles));
+            }
 
-            if (replacementFileData == null)
-                throw new ArgumentNullException(
-                    nameof(replacementFileData));
+            if (replacementFiles.Count ==
+                0)
+            {
+                throw new ArgumentException(
+                    "At least one ERA replacement file is required.",
+                    nameof(replacementFiles));
+            }
 
             if (!archive.IsEncrypted)
             {
                 throw new NotSupportedException(
                     "This first ERA writer currently expects " +
                     "the normal encrypted Halo Wars archive.");
-            }
-
-            if (replacementChunk.CompressionMethod !=
-                0)
-            {
-                throw new NotSupportedException(
-                    "The first write-back implementation " +
-                    "currently supports replacing Stored ERA chunks only.");
             }
 
             int chunkHeaderSize =
@@ -101,53 +113,118 @@ namespace Ensemble.Services
                     data);
             }
 
-            int targetIndex =
-                replacementChunk.Index;
+            Dictionary<int, ulong>
+                replacementIds = new();
 
-            if (targetIndex <= 0 ||
-                targetIndex >=
-                archive.Chunks.Count)
+            Dictionary<int, byte[]>
+                replacementTiger128 =
+                    new();
+
+            Dictionary<int, int>
+                replacementDecompressedSizes =
+                    new();
+
+
+            foreach (
+                KeyValuePair<int, byte[]> replacement
+                in replacementFiles)
             {
-                throw new InvalidDataException(
-                    "Invalid replacement ERA chunk index.");
-            }
+                int targetIndex =
+                    replacement.Key;
 
-            byte[] originalTargetData =
+                if (targetIndex <=
+                        0 ||
+                    targetIndex >=
+                        archive.Chunks.Count)
+                {
+                    throw new InvalidDataException(
+                        $"Invalid replacement ERA chunk index: " +
+                        $"{targetIndex}.");
+                }
+
+
+                EraChunkInfo chunk =
+                    archive.Chunks[
+                        targetIndex];
+
+                byte[] replacementDecompressedData =
+                    replacement.Value
+                    ?? throw new InvalidDataException(
+                        $"Replacement chunk {targetIndex} " +
+                        "contains no data.");
+
+
+                byte[] originalStoredData =
+                    storedChunks[
+                        targetIndex];
+
+
+                // -----------------------------------------------------
+                // Verify compressed Tiger128 against shipping archive.
+                // -----------------------------------------------------
+
+                byte[] existingTiger128 =
+                    EraHashService.Tiger128(
+                        originalStoredData);
+
+                if (!existingTiger128.AsSpan()
+                        .SequenceEqual(
+                            chunk.CompressedTiger128))
+                {
+                    throw new InvalidDataException(
+                        $"Tiger128 verification failed for ERA " +
+                        $"chunk {targetIndex} ({chunk.FileName}).");
+                }
+
+
+                // -----------------------------------------------------
+                // ID is Tiger64 of DECOMPRESSED file data.
+                //
+                // This matters now because terrain chunks may be
+                // compressed even though the old scenario path happened
+                // to use Stored data.
+                // -----------------------------------------------------
+
+                byte[] originalDecompressedData =
+                    EraExtractionService.ExtractChunk(
+                        archive,
+                        chunk);
+
+                ulong replacementId =
+                    EraHashService
+                        .ComputeReplacementTiger64(
+                            chunk.Id,
+                            originalDecompressedData,
+                            replacementDecompressedData);
+
+
+                byte[] replacementStoredData =
+                    EncodeReplacementChunk(
+                        chunk,
+                        replacementDecompressedData);
+
+                byte[] newTiger128 =
+                    EraHashService.Tiger128(
+                        replacementStoredData);
+
+
+                replacementIds[
+                    targetIndex] =
+                        replacementId;
+
+                replacementTiger128[
+                    targetIndex] =
+                        newTiger128;
+
+                replacementDecompressedSizes[
+                    targetIndex] =
+                        replacementDecompressedData.Length;
+
+
                 storedChunks[
-                    targetIndex];
-
-            // Verify our Tiger implementation against the
-            // shipping ERA before trusting it for output.
-            byte[] existingTiger128 =
-                EraHashService.Tiger128(
-                    originalTargetData);
-
-            if (!existingTiger128.AsSpan()
-                    .SequenceEqual(
-                        replacementChunk
-                            .CompressedTiger128))
-            {
-                throw new InvalidDataException(
-                    "Tiger128 verification failed against " +
-                    "the original ERA chunk. Ensemble will " +
-                    "not rebuild the archive using an " +
-                    "unverified hash implementation.");
+                    targetIndex] =
+                        replacementStoredData;
             }
-
-            ulong replacementId =
-                EraHashService
-                    .ComputeReplacementTiger64(
-                        replacementChunk.Id,
-                        originalTargetData,
-                        replacementFileData);
-
-            byte[] replacementTiger128 =
-                EraHashService.Tiger128(
-                    replacementFileData);
-
-            storedChunks[
-                targetIndex] =
-                    replacementFileData;
 
             // -----------------------------------------------------
             // Rebuild plaintext archive
@@ -222,29 +299,27 @@ namespace Ensemble.Services
                         .Adler32(
                             data));
 
-                if (i ==
-                    targetIndex)
+                if (replacementIds.TryGetValue(i,
+                    out ulong replacementId))
                 {
-                    // ID = decompressed Tiger64.
                     WriteUInt64(
                         chunkTable,
                         p,
                         replacementId);
 
-                    // Extra archive data starts at +24.
-                    // +8 Date
-                    // +4 Decompressed size
-                    // +16 compressed Tiger128
 
                     WriteUInt32(
                         chunkTable,
                         p + 32,
                         checked(
                             (uint)
-                            replacementFileData.Length));
+                            replacementDecompressedSizes[
+                                i]));
+
 
                     Buffer.BlockCopy(
-                        replacementTiger128,
+                        replacementTiger128[
+                            i],
                         0,
                         chunkTable,
                         p + 36,
@@ -383,6 +458,32 @@ namespace Ensemble.Services
                         offset,
                         8),
                     value);
+        }
+
+        private static byte[] EncodeReplacementChunk(
+            EraChunkInfo chunk,
+            byte[] decompressedData)
+        {
+            return chunk.CompressionMethod switch
+            {
+                0 =>
+                    decompressedData,
+
+                1 =>
+                    EraCompressionService
+                        .CompressDeflateRaw(
+                            decompressedData),
+
+                2 =>
+                    EraCompressionService
+                        .CompressDeflateStream(
+                            decompressedData),
+
+                _ =>
+                    throw new NotSupportedException(
+                        $"ERA chunk {chunk.Index} uses unsupported " +
+                        $"compression method {chunk.CompressionMethod}.")
+            };
         }
     }
 }

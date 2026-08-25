@@ -162,12 +162,14 @@ namespace Ensemble.Controls
             0;
 
         public bool CanUndoTerrainPreview =>
-            _terrainPreviewUndo.Count >
-            0;
+            _terrainPreviewUndo.Count > 0;
 
         public bool CanRedoTerrainPreview =>
-            _terrainPreviewRedo.Count >
-            0;
+            _terrainPreviewRedo.Count > 0;
+
+        public TerrainHeightMap? TerrainHeightMap => _terrainHeightMap;
+
+        public event EventHandler? TerrainPreviewChanged;
 
         private sealed class PathPointHandle
         {
@@ -2289,12 +2291,21 @@ namespace Ensemble.Controls
                                 oldValue;
                     }
 
+                    float newValue =
+                        oldValue +
+                        direction *
+                        _terrainBrushStrength *
+                        falloff;
+
+                    newValue =
+                        Math.Clamp(
+                            newValue,
+                            terrain.EncodableMinHeight,
+                            terrain.EncodableMaxHeight);
+
                     terrain.Heights[
                         index] =
-                            oldValue +
-                            direction *
-                            _terrainBrushStrength *
-                            falloff;
+                            newValue;
                 }
             }
 
@@ -2363,6 +2374,8 @@ namespace Ensemble.Controls
                         changes));
 
                 _terrainPreviewRedo.Clear();
+
+                TerrainPreviewChanged?.Invoke(this, EventArgs.Empty);
             }
 
 
@@ -2405,6 +2418,10 @@ namespace Ensemble.Controls
 
             RefreshTerrainHeightBitmap();
 
+            TerrainPreviewChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+
             return true;
         }
 
@@ -2434,6 +2451,10 @@ namespace Ensemble.Controls
 
             RefreshTerrainHeightBitmap();
 
+            TerrainPreviewChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+
             return true;
         }
 
@@ -2462,7 +2483,32 @@ namespace Ensemble.Controls
 
             RefreshTerrainHeightBitmap();
 
+            TerrainPreviewChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+
             return true;
+        }
+
+        public void AcceptTerrainChangesAsBaseline()
+        {
+            if (_terrainHeightMap == null)
+                return;
+
+            _terrainOriginalHeights =
+                _terrainHeightMap
+                    .Heights
+                    .ToArray();
+
+            _terrainPreviewUndo.Clear();
+
+            _terrainPreviewRedo.Clear();
+
+            _terrainStrokeBefore.Clear();
+
+            TerrainPreviewChanged?.Invoke(
+                this,
+                EventArgs.Empty);
         }
 
         private void DrawTerrainBrushPreview()

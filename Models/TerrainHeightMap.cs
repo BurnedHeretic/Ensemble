@@ -64,5 +64,29 @@ namespace Ensemble.Models
                 0,
                 Height - 1) *
             TileScale;
+
+        public Vector3 PositionCompressionMin
+        {
+            get;
+            init;
+        }
+
+        public Vector3 PositionCompressionRange
+        {
+            get;
+            init;
+        }
+
+        public float EncodableMinHeight =>
+            -PositionCompressionMin.Y;
+
+        public float EncodableMaxHeight =>
+            PositionCompressionRange.Y -
+            PositionCompressionMin.Y;
+
+        public float HeightQuantizationStep =>
+            PositionCompressionRange.Y /
+            1023.0f;
+
     }
 }

@@ -45,6 +45,12 @@ namespace Ensemble
         private EraChunkInfo?
             _currentScenarioChunk;
 
+        private EraChunkInfo?
+            _currentTerrainChunk;
+
+        private byte[]?
+            _currentTerrainOriginalXtdData;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -75,6 +81,9 @@ namespace Ensemble
 
             ScenarioMapCanvas.PathPointMoved +=
                 ScenarioMapCanvas_PathPointMoved;
+
+            ScenarioMapCanvas.TerrainPreviewChanged +=
+                ScenarioMapCanvas_TerrainPreviewChanged;
 
             PreviewKeyDown +=
                 MainWindow_PreviewKeyDown;
@@ -388,6 +397,21 @@ namespace Ensemble
                     filePath);
 
             ScenarioMapCanvas.CancelObjectPlacement();
+
+            ScenarioMapCanvas
+                .SetTerrainSculptMode(
+                Ensemble.Controls
+                .TerrainSculptMode.None);
+
+            ScenarioMapCanvas
+                .SetTerrainHeightMap(
+                    null);
+
+            _currentTerrainChunk =
+                null;
+
+            _currentTerrainOriginalXtdData =
+                null;
 
             _pendingAddTemplate =
                 null;
@@ -1496,6 +1520,59 @@ namespace Ensemble
             }
         }
 
+        private static void ValidateTerrainRoundTrip(
+            TerrainHeightMap expected,
+            TerrainHeightMap actual)
+        {
+            if (expected.Width !=
+                    actual.Width ||
+                expected.Height !=
+                    actual.Height)
+            {
+                throw new InvalidDataException(
+                    "Terrain XTD verification failed: " +
+                    "dimensions changed.");
+            }
+
+
+            if (expected.Heights.Length !=
+                actual.Heights.Length)
+            {
+                throw new InvalidDataException(
+                    "Terrain XTD verification failed: " +
+                    "height count changed.");
+            }
+
+
+            float tolerance =
+                Math.Max(
+                    0.0001f,
+                    actual.HeightQuantizationStep *
+                    0.51f);
+
+
+            for (int i = 0;
+                 i < expected.Heights.Length;
+                 i++)
+            {
+                float difference =
+                    MathF.Abs(
+                        expected.Heights[i] -
+                        actual.Heights[i]);
+
+                if (difference >
+                    tolerance)
+                {
+                    throw new InvalidDataException(
+                        "Terrain XTD verification failed.\n\n" +
+                        $"Vertex: {i:N0}\n" +
+                        $"Expected: {expected.Heights[i]:0.####}\n" +
+                        $"Actual:   {actual.Heights[i]:0.####}\n" +
+                        $"Tolerance: {tolerance:0.####}");
+                }
+            }
+        }
+
         private static void RequireVectorEqual(
             Vector3 expected,
             Vector3 actual,
@@ -1785,6 +1862,12 @@ namespace Ensemble
                         null);
 
                 return null;
+
+                _currentTerrainChunk =
+                    null;
+
+                _currentTerrainOriginalXtdData =
+                    null;
             }
 
 
@@ -1830,6 +1913,12 @@ namespace Ensemble
                         null);
 
                 return null;
+
+                _currentTerrainChunk =
+                    null;
+
+                _currentTerrainOriginalXtdData =
+                    null;
             }
 
 
@@ -1837,6 +1926,12 @@ namespace Ensemble
                 EraExtractionService.ExtractChunk(
                     _currentArchive,
                     terrainChunk);
+
+            _currentTerrainChunk =
+                terrainChunk;
+
+            _currentTerrainOriginalXtdData =
+                xtdData.ToArray();
 
             TerrainHeightMap terrain =
                 TerrainXtdService.Read(
@@ -1932,6 +2027,13 @@ namespace Ensemble
                     terrain);
 
             return terrain;
+        }
+
+        private void ScenarioMapCanvas_TerrainPreviewChanged(
+            object? sender,
+            EventArgs e)
+        {
+            UpdateDirtyState();
         }
 
         private static string GetEraFileStem(
@@ -2579,7 +2681,10 @@ namespace Ensemble
         {
             _isDirty =
                 _currentRevisionId !=
-                _savedRevisionId;
+                _savedRevisionId
+                ||
+                ScenarioMapCanvas
+                .HasTerrainPreviewChanges;
 
             UpdateWindowTitle();
         }
@@ -3967,6 +4072,53 @@ namespace Ensemble
                 ScenarioMap expected =
                     ScenarioMapCanvas.Scenario;
 
+                bool hadTerrainChanges =
+                    ScenarioMapCanvas
+                    .HasTerrainPreviewChanges;
+
+                TerrainHeightMap? expectedTerrain =
+                    ScenarioMapCanvas
+                        .TerrainHeightMap;
+
+                byte[]? modifiedXtd =
+                    null;
+
+
+                if (hadTerrainChanges)
+                {
+                    if (_currentTerrainChunk ==
+                            null ||
+                        _currentTerrainOriginalXtdData ==
+                            null ||
+                        expectedTerrain ==
+                            null)
+                    {
+                        throw new InvalidDataException(
+                            "Terrain was edited, but Ensemble no longer " +
+                            "has the source XTD required to save it.");
+                    }
+
+
+                    StatusText.Text =
+                        "Encoding modified XTD terrain...";
+
+
+                    modifiedXtd =
+                        TerrainXtdService.WriteHeights(
+                            _currentTerrainOriginalXtdData,
+                            expectedTerrain);
+
+
+                    TerrainHeightMap encodedTerrain =
+                        TerrainXtdService.Read(
+                            modifiedXtd);
+
+
+                    ValidateTerrainRoundTrip(
+                        expectedTerrain,
+                        encodedTerrain);
+                }
+
                 bool hadStructuralChanges =
                     expected.Objects.Any(
                         x =>
@@ -3991,11 +4143,29 @@ namespace Ensemble
                 StatusText.Text =
                     "Rebuilding and encrypting ERA...";
 
+                Dictionary<int, byte[]> replacements =
+                    new()
+                    {
+                        [_currentScenarioChunk.Index] =
+                        modifiedXmb
+                    };
+
+
+                if (modifiedXtd !=
+                        null &&
+                    _currentTerrainChunk !=
+                        null)
+                {
+                    replacements[
+                        _currentTerrainChunk.Index] =
+                            modifiedXtd;
+                }
+
+
                 byte[] modifiedEra =
                     EraRebuildService.BuildModifiedEra(
                         _currentArchive,
-                        _currentScenarioChunk,
-                        modifiedXmb);
+                        replacements);
 
                 // -----------------------------------------------------
                 // Write to TEMP first.
@@ -4043,6 +4213,47 @@ namespace Ensemble
                     expected,
                     verificationScenario);
 
+                if (hadTerrainChanges)
+                {
+                    if (_currentTerrainChunk ==
+                            null ||
+                        expectedTerrain ==
+                            null)
+                    {
+                        throw new InvalidDataException(
+                            "Terrain verification state is missing.");
+                    }
+
+
+                    if (_currentTerrainChunk.Index >=
+                        verificationArchive.Chunks.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Saved ERA lost the terrain XTD chunk.");
+                    }
+
+
+                    EraChunkInfo verificationTerrainChunk =
+                        verificationArchive.Chunks[
+                            _currentTerrainChunk.Index];
+
+
+                    byte[] verificationXtd =
+                        EraExtractionService.ExtractChunk(
+                            verificationArchive,
+                            verificationTerrainChunk);
+
+
+                    TerrainHeightMap verificationTerrain =
+                        TerrainXtdService.Read(
+                            verificationXtd);
+
+
+                    ValidateTerrainRoundTrip(
+                        expectedTerrain,
+                        verificationTerrain);
+                }
+
                 // -----------------------------------------------------
                 // New archive is now proven readable.
                 // Only now do we touch the destination.
@@ -4082,6 +4293,37 @@ namespace Ensemble
 
                 _currentScenarioChunk =
                     savedScenarioChunk;
+
+                if (_currentTerrainChunk !=
+                    null)
+                {
+                    EraChunkInfo savedTerrainChunk =
+                        savedArchive.Chunks[
+                            _currentTerrainChunk.Index];
+
+                    byte[] savedTerrainXtd =
+                        EraExtractionService.ExtractChunk(
+                            savedArchive,
+                            savedTerrainChunk);
+
+                    _currentTerrainChunk =
+                        savedTerrainChunk;
+
+                    _currentTerrainOriginalXtdData =
+                        savedTerrainXtd;
+
+
+                    if (hadTerrainChanges)
+                    {
+                        TerrainHeightMap savedTerrain =
+                            TerrainXtdService.Read(
+                                savedTerrainXtd);
+
+                        ScenarioMapCanvas
+                            .SetTerrainHeightMap(
+                                savedTerrain);
+                    }
+                }
 
                 _currentScenarioOriginalXmbData =
                     savedScenarioXmb;

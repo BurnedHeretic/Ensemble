@@ -192,6 +192,31 @@ namespace Ensemble.Services
             return decompressedBytes;
         }
 
+        public static byte[] CompressDeflateRaw(
+            ReadOnlySpan<byte> data)
+        {
+            using MemoryStream output =
+                new MemoryStream();
+
+            using (
+                DeflateStream deflate =
+                    new DeflateStream(
+                        output,
+                        CompressionLevel.Optimal,
+                        leaveOpen: true))
+            {
+                byte[] bytes =
+                    data.ToArray();
+
+                deflate.Write(
+                    bytes,
+                    0,
+                    bytes.Length);
+            }
+
+            return output.ToArray();
+        }
+
         private static void ValidateHeaderAdler32(
             uint expectedAdler32,
             uint headerType,
