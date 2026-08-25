@@ -51,6 +51,12 @@ namespace Ensemble
         private byte[]?
             _currentTerrainOriginalXtdData;
 
+        private EraChunkInfo?
+            _currentSimulationChunk;
+
+        private byte[]?
+            _currentSimulationOriginalXsdData;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -411,6 +417,12 @@ namespace Ensemble
                 null;
 
             _currentTerrainOriginalXtdData =
+                null;
+
+            _currentSimulationChunk =
+                null;
+
+            _currentSimulationOriginalXsdData =
                 null;
 
             _pendingAddTemplate =
@@ -1279,6 +1291,11 @@ namespace Ensemble
                         TryLoadTerrainTextureMap(
                             map);
 
+                    TerrainSimulationMap? simulation =
+                        TryLoadTerrainSimulationMap(
+                            map,
+                            terrain);
+
                     ScenarioMapCanvas.Visibility =
                         Visibility.Visible;
 
@@ -1304,7 +1321,11 @@ namespace Ensemble
                         +
                         (terrainTexture != null
                         ? $" | XTT {terrainTexture.Width}×{terrainTexture.Height}"
-                        : " | no XTT texture loaded");
+                        : " | no XTT texture loaded")
+                        +
+                        (simulation != null
+                        ? $" | XSD {simulation.Width}×{simulation.Width}"
+                        : " | no XSD simulation loaded");
                 }
                 else
                 {
@@ -1837,7 +1858,7 @@ namespace Ensemble
         }
 
         //-----------------------------------------------------
-        // Terrain Height Map Loading
+        // Terrain
         //-----------------------------------------------------
         private TerrainHeightMap? TryLoadTerrainHeightMap(
             ScenarioMap map)
@@ -2027,6 +2048,115 @@ namespace Ensemble
                     terrain);
 
             return terrain;
+        }
+
+        private TerrainSimulationMap?
+            TryLoadTerrainSimulationMap(
+            ScenarioMap map,
+        TerrainHeightMap? referenceTerrain)
+        {
+            if (_currentArchive == null ||
+                referenceTerrain == null)
+            {
+                _currentSimulationChunk =
+                    null;
+
+                _currentSimulationOriginalXsdData =
+                    null;
+
+                return null;
+            }
+
+
+            List<EraChunkInfo> candidates =
+                _currentArchive.Chunks
+                    .Where(
+                        x =>
+                            x.FileName.EndsWith(
+                                ".xsd",
+                                StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+
+            if (candidates.Count ==
+                0)
+            {
+                _currentSimulationChunk =
+                    null;
+
+                _currentSimulationOriginalXsdData =
+                    null;
+
+                return null;
+            }
+
+
+            string terrainKey =
+                NormalizeTerrainName(
+                    map.Terrain);
+
+
+            EraChunkInfo? terrainChunk =
+                candidates.FirstOrDefault(
+                    x =>
+                        NormalizeTerrainName(
+                            GetEraFileStem(
+                                x.FileName))
+                        ==
+                        terrainKey);
+
+
+            terrainChunk ??=
+                candidates.FirstOrDefault(
+                    x =>
+                        NormalizeTerrainName(
+                            x.FileName)
+                        .Contains(
+                            terrainKey,
+                            StringComparison.Ordinal));
+
+
+            if (terrainChunk == null &&
+                candidates.Count ==
+                    1)
+            {
+                terrainChunk =
+                    candidates[0];
+            }
+
+
+            if (terrainChunk == null)
+            {
+                _currentSimulationChunk =
+                    null;
+
+                _currentSimulationOriginalXsdData =
+                    null;
+
+                return null;
+            }
+
+
+            byte[] xsdData =
+                EraExtractionService.ExtractChunk(
+                    _currentArchive,
+                    terrainChunk);
+
+
+            TerrainSimulationMap simulation =
+                TerrainXsdService.Read(
+                    xsdData,
+                    referenceTerrain);
+
+
+            _currentSimulationChunk =
+                terrainChunk;
+
+            _currentSimulationOriginalXsdData =
+                xsdData.ToArray();
+
+
+            return simulation;
         }
 
         private void ScenarioMapCanvas_TerrainPreviewChanged(
@@ -4083,6 +4213,9 @@ namespace Ensemble
                 byte[]? modifiedXtd =
                     null;
 
+                byte[]? modifiedXsd =
+                    null;
+
 
                 if (hadTerrainChanges)
                 {
@@ -4106,6 +4239,35 @@ namespace Ensemble
                     modifiedXtd =
                         TerrainXtdService.WriteHeights(
                             _currentTerrainOriginalXtdData,
+                            expectedTerrain);
+
+                    if (_currentSimulationChunk ==
+                        null ||
+                        _currentSimulationOriginalXsdData ==
+                        null)
+                    {
+                        throw new InvalidDataException(
+                            "Terrain was sculpted, but this map's XSD " +
+                            "simulation file could not be found.\n\n" +
+                            "Ensemble will not save visual terrain without " +
+                            "also updating gameplay terrain.");
+                    }
+
+
+                    TerrainHeightMap originalTerrain =
+                        TerrainXtdService.Read(
+                            _currentTerrainOriginalXtdData);
+
+
+                    StatusText.Text =
+                        "Synchronizing XSD simulation terrain...";
+
+
+                    modifiedXsd =
+                        TerrainXsdService
+                        .WriteSynchronizedHeights(
+                            _currentSimulationOriginalXsdData,
+                            originalTerrain,
                             expectedTerrain);
 
 
@@ -4159,6 +4321,16 @@ namespace Ensemble
                     replacements[
                         _currentTerrainChunk.Index] =
                             modifiedXtd;
+                }
+
+                if (modifiedXsd !=
+                    null &&
+                    _currentSimulationChunk !=
+                    null)
+                {
+                    replacements[
+                        _currentSimulationChunk.Index] =
+                            modifiedXsd;
                 }
 
 
@@ -4243,6 +4415,39 @@ namespace Ensemble
                             verificationArchive,
                             verificationTerrainChunk);
 
+                    if (modifiedXsd !=
+                        null &&
+                        _currentSimulationChunk !=
+                        null)
+                    {
+                        EraChunkInfo verificationSimulationChunk =
+                            verificationArchive.Chunks[
+                                _currentSimulationChunk.Index];
+
+
+                        byte[] verificationXsd =
+                            EraExtractionService.ExtractChunk(
+                                verificationArchive,
+                                verificationSimulationChunk);
+
+
+                        if (!verificationXsd
+                                .AsSpan()
+                                .SequenceEqual(
+                                    modifiedXsd))
+                        {
+                            throw new InvalidDataException(
+                                "XSD simulation terrain failed " +
+                                "ERA round-trip verification.");
+                        }
+
+
+                        // Also prove the resulting file can be parsed.
+                        TerrainXsdService.Read(
+                            verificationXsd,
+                            expectedTerrain);
+                    }
+
 
                     TerrainHeightMap verificationTerrain =
                         TerrainXtdService.Read(
@@ -4308,6 +4513,27 @@ namespace Ensemble
 
                     _currentTerrainChunk =
                         savedTerrainChunk;
+
+                    if (_currentSimulationChunk !=
+                        null)
+                    {
+                        EraChunkInfo savedSimulationChunk =
+                            savedArchive.Chunks[
+                                _currentSimulationChunk.Index];
+
+
+                        byte[] savedSimulationXsd =
+                            EraExtractionService.ExtractChunk(
+                                savedArchive,
+                                savedSimulationChunk);
+
+
+                        _currentSimulationChunk =
+                            savedSimulationChunk;
+
+                        _currentSimulationOriginalXsdData =
+                            savedSimulationXsd;
+                    }
 
                     _currentTerrainOriginalXtdData =
                         savedTerrainXtd;
