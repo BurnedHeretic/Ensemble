@@ -437,6 +437,9 @@ namespace Ensemble
             AddObjectMenuItem.IsEnabled =
                 false;
 
+            CreateCustomMapCopyMenuItem.IsEnabled =
+                false;
+
             _undoStack.Clear();
 
             _redoStack.Clear();
@@ -575,8 +578,21 @@ namespace Ensemble
                 return;
 
             if (treeItem.Tag
-                is not EraChunkInfo chunk)
+                is not EraChunkInfo taggedChunk)
+            {
                 return;
+            }
+
+            if (taggedChunk.Index < 0 ||
+                taggedChunk.Index >=
+                    _currentArchive.Chunks.Count)
+            {
+                return;
+            }
+
+            EraChunkInfo chunk =
+                _currentArchive.Chunks[
+                    taggedChunk.Index];
 
             string defaultName =
                 System.IO.Path.GetFileName(
@@ -1230,8 +1246,19 @@ namespace Ensemble
             if (sender is not TreeViewItem item)
                 return;
 
-            if (item.Tag is not EraChunkInfo chunk)
+            if (item.Tag is not EraChunkInfo taggedChunk)
                 return;
+
+            if (taggedChunk.Index < 0 ||
+                taggedChunk.Index >=
+                    _currentArchive.Chunks.Count)
+            {
+                return;
+            }
+
+            EraChunkInfo chunk =
+                _currentArchive.Chunks[
+                    taggedChunk.Index];
 
             if (!chunk.FileName.EndsWith(
                     ".xmb",
@@ -1275,6 +1302,9 @@ namespace Ensemble
                         true;
 
                     AddObjectMenuItem.IsEnabled =
+                        true;
+
+                    CreateCustomMapCopyMenuItem.IsEnabled =
                         true;
 
                     ScenarioMap map =
@@ -3732,6 +3762,379 @@ namespace Ensemble
             }
         }
 
+        private void CreateCustomMapCopy_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentArchive ==
+                    null ||
+                _currentScenarioChunk ==
+                    null)
+            {
+                return;
+            }
+
+
+            // Make sure the custom copy includes
+            // every current edit first.
+            if (_isDirty)
+            {
+                MessageBoxResult saveResult =
+                    MessageBox.Show(
+                        this,
+                        "The current map has unsaved changes.\n\n" +
+                        "Save them before creating the custom map copy?",
+                        "Create Custom Map",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+
+                if (saveResult !=
+                    MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+
+                if (!SaveCurrentDocument())
+                {
+                    return;
+                }
+            }
+
+
+            string sourceScenarioPath =
+                _currentScenarioChunk
+                    .FileName
+                    .Replace(
+                        '/',
+                        '\\');
+
+
+            const string scnSuffix =
+                ".scn.xmb";
+
+
+            if (!sourceScenarioPath.EndsWith(
+                    scnSuffix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    this,
+                    "The current scenario filename does not " +
+                    "end in .scn.xmb.",
+                    "Create Custom Map",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+                return;
+            }
+
+
+            int slash =
+                sourceScenarioPath
+                    .LastIndexOf(
+                        '\\');
+
+
+            string directory =
+                slash >=
+                    0
+                    ? sourceScenarioPath[
+                        ..(slash + 1)]
+                    : string.Empty;
+
+
+            string leaf =
+                slash >=
+                    0
+                    ? sourceScenarioPath[
+                        (slash + 1)..]
+                    : sourceScenarioPath;
+
+
+            string oldBasename =
+                leaf[
+                    ..^scnSuffix.Length];
+
+
+            SaveFileDialog dialog =
+                new SaveFileDialog
+                {
+                    Title =
+                        "Create Custom Halo Wars Map",
+
+                    FileName =
+                        oldBasename +
+                        "_ensemble.era",
+
+                    Filter =
+                        "Halo Wars ERA (*.era)|*.era",
+
+                    AddExtension =
+                        true,
+
+                    DefaultExt =
+                        ".era"
+                };
+
+
+            if (dialog.ShowDialog(
+                    this) !=
+                true)
+            {
+                return;
+            }
+
+
+            string newBasename =
+                Path.GetFileNameWithoutExtension(
+                    dialog.FileName)
+                .Trim();
+
+
+            if (!IsSafeScenarioBasename(
+                    newBasename))
+            {
+                MessageBox.Show(
+                    this,
+                    "Use only letters, numbers, underscores " +
+                    "and hyphens for the custom map name.",
+                    "Invalid Map Name",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return;
+            }
+
+
+            if (string.Equals(
+                    oldBasename,
+                    newBasename,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    this,
+                    "The custom map needs a different basename " +
+                    "from the source map.",
+                    "Invalid Map Name",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                return;
+            }
+
+
+            try
+            {
+                Dictionary<int, string>
+                    renames =
+                        new();
+
+
+                AddScenarioCompanionRename(
+                    _currentArchive,
+                    renames,
+                    directory,
+                    oldBasename,
+                    newBasename,
+                    ".scn.xmb",
+                    required: true);
+
+
+                AddScenarioCompanionRename(
+                    _currentArchive,
+                    renames,
+                    directory,
+                    oldBasename,
+                    newBasename,
+                    ".sc2.xmb",
+                    required: false);
+
+
+                AddScenarioCompanionRename(
+                    _currentArchive,
+                    renames,
+                    directory,
+                    oldBasename,
+                    newBasename,
+                    ".sc3.xmb",
+                    required: false);
+
+
+                StatusText.Text =
+                    "Creating custom scenario alias...";
+
+
+                byte[] result =
+                    EraRebuildService
+                        .BuildRenamedEra(
+                            _currentArchive,
+                            renames);
+
+
+                string tempPath =
+                    dialog.FileName +
+                    ".ensemble.tmp";
+
+
+                try
+                {
+                    File.WriteAllBytes(
+                        tempPath,
+                        result);
+
+
+                    EraArchiveInfo verification =
+                        EraArchiveService.Open(
+                            tempPath);
+
+
+                    string expectedScn =
+                        directory +
+                        newBasename +
+                        ".scn.xmb";
+
+
+                    bool found =
+                        verification.Chunks.Any(
+                            x =>
+                                string.Equals(
+                                    x.FileName,
+                                    expectedScn,
+                                    StringComparison.OrdinalIgnoreCase));
+
+
+                    if (!found)
+                    {
+                        throw new InvalidDataException(
+                            "Custom ERA verification failed: " +
+                            "renamed SCN was not found.");
+                    }
+
+
+                    File.Copy(
+                        tempPath,
+                        dialog.FileName,
+                        overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(
+                            tempPath))
+                    {
+                        File.Delete(
+                            tempPath);
+                    }
+                }
+
+
+                StatusText.Text =
+                    $"Created custom map: {newBasename}.era";
+
+
+                MessageBox.Show(
+                    this,
+                    "Custom map archive created successfully.\n\n" +
+                    $"Archive: {Path.GetFileName(dialog.FileName)}\n" +
+                    $"Scenario: {newBasename}.scn\n\n" +
+                    "Next we can register this scenario in " +
+                    "ScenarioDescriptions.",
+                    "Custom Map Created",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+                    "Unable to Create Custom Map",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+                StatusText.Text =
+                    "Custom map creation failed.";
+            }
+        }
+
+        private static bool IsSafeScenarioBasename(
+            string value)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    value) ||
+                value.Length >
+                    64)
+            {
+                return false;
+            }
+
+
+            foreach (char c
+                     in value)
+            {
+                if (!char.IsLetterOrDigit(
+                        c) &&
+                    c !=
+                        '_' &&
+                    c !=
+                        '-')
+                {
+                    return false;
+                }
+            }
+
+
+            return true;
+        }
+
+        private static void AddScenarioCompanionRename(
+            EraArchiveInfo archive,
+            Dictionary<int, string> renames,
+            string directory,
+            string oldBasename,
+            string newBasename,
+            string suffix,
+            bool required)
+        {
+            string oldName =
+                directory +
+                oldBasename +
+                suffix;
+
+
+            EraChunkInfo? chunk =
+                archive.Chunks
+                    .FirstOrDefault(
+                        x =>
+                            string.Equals(
+                                x.FileName,
+                                oldName,
+                                StringComparison.OrdinalIgnoreCase));
+
+
+            if (chunk ==
+                null)
+            {
+                if (required)
+                {
+                    throw new InvalidDataException(
+                        "Required scenario archive file " +
+                        "was not found:\n\n" +
+                        oldName);
+                }
+
+                return;
+            }
+
+
+            renames[
+                chunk.Index] =
+                    directory +
+                    newBasename +
+                    suffix;
+        }
+
         // =========================================================
         // Terrain
         // ========================================================
@@ -4601,8 +5004,6 @@ namespace Ensemble
                         _currentRevisionId;
                 }
 
-                UpdateDirtyState();
-
                 _currentSavePath =
                     targetPath;
 
@@ -4610,6 +5011,13 @@ namespace Ensemble
                     _currentRevisionId;
 
                 UpdateDirtyState();
+
+                // The saved archive has new chunk metadata:
+                // offsets, sizes, Adler32 values, hashes, etc.
+                //
+                // Rebuild the archive tree so its TreeViewItem.Tag
+                // objects refer to the newly-opened savedArchive.
+                BuildArchiveTree();
 
                 ShowArchiveInformation();
 
@@ -4935,6 +5343,14 @@ namespace Ensemble
             StatusText.Text =
                 $"Deleted {e.Object.EditorName} | " +
                 $"ID {e.Object.Id}";
+        }
+
+        //
+        // Help
+        //
+        private void LinkToSource_Click(object sender, RoutedEventArgs e)
+        {
+
         }
 
         // =========================================================

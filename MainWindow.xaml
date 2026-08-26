@@ -100,11 +100,13 @@
               Click="FitMap_Click"/>
 
             </MenuItem>
-            
-            
-            <MenuItem Header="_Map"/>
-            
-            
+
+
+            <MenuItem Header="_Map">
+                
+            </MenuItem>
+
+
             <MenuItem Header="_Terrain">
 
                 <MenuItem x:Name="TerrainTextureMenuItem"
@@ -228,9 +230,23 @@
                 <MenuItem Header="Patch Halo Wars EXE..."
               Click="PatchHaloWarsExe_Click"/>
 
+                
+
+                <MenuItem x:Name="CreateCustomMapCopyMenuItem"
+              Header="Create custom scenario files..."
+              Click="CreateCustomMapCopy_Click"
+              IsEnabled="False"/>
+
+                
+
             </MenuItem>
 
-            <MenuItem Header="_Help"/>
+            <MenuItem Header="_Help">
+
+                
+
+            </MenuItem>
+                      
 
         </Menu>
 
