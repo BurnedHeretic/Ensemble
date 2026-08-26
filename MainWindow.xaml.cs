@@ -440,6 +440,9 @@ namespace Ensemble
             CreateCustomMapCopyMenuItem.IsEnabled =
                 false;
 
+            RegisterCustomMapMenuItem.IsEnabled =
+                false;
+
             _undoStack.Clear();
 
             _redoStack.Clear();
@@ -1305,6 +1308,9 @@ namespace Ensemble
                         true;
 
                     CreateCustomMapCopyMenuItem.IsEnabled =
+                        true;
+
+                    RegisterCustomMapMenuItem.IsEnabled =
                         true;
 
                     ScenarioMap map =
@@ -4055,6 +4061,365 @@ namespace Ensemble
 
                 StatusText.Text =
                     "Custom map creation failed.";
+            }
+        }
+
+        private void RegisterCustomMap_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentArchive ==
+                    null ||
+                _currentScenarioChunk ==
+                    null)
+            {
+                return;
+            }
+
+
+            // =========================================================
+            // Save current map first.
+            // =========================================================
+
+            if (_isDirty)
+            {
+                MessageBoxResult result =
+                    MessageBox.Show(
+                        this,
+                        "The current map contains unsaved changes.\n\n" +
+                        "Save them before registering the custom map?",
+                        "Register Custom Map",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+
+                if (result !=
+                    MessageBoxResult.Yes)
+                {
+                    return;
+                }
+
+
+                if (!SaveCurrentDocument())
+                {
+                    return;
+                }
+            }
+
+
+            try
+            {
+                string registrationFile =
+                    ScenarioDescriptionsService
+                        .BuildScenarioRegistrationPath(
+                            _currentScenarioChunk);
+
+
+                string scenarioBasename =
+                    Path.GetFileNameWithoutExtension(
+                        registrationFile);
+
+
+                string eraBasename =
+                    Path.GetFileNameWithoutExtension(
+                        _currentArchive.FileName);
+
+
+                // -----------------------------------------------------
+                // Critical:
+                //
+                // ERA basename and scenario basename must match.
+                // -----------------------------------------------------
+
+                if (!string.Equals(
+                        scenarioBasename,
+                        eraBasename,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show(
+                        this,
+                        "This ERA cannot be registered as a separate map yet.\n\n" +
+                        "The ERA filename and internal scenario basename " +
+                        "must match.\n\n" +
+                        $"ERA:      {eraBasename}\n" +
+                        $"Scenario: {scenarioBasename}\n\n" +
+                        "Use 'Create custom scenario files...' first.",
+                        "Custom Map Naming Mismatch",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+
+                    return;
+                }
+
+
+                // =========================================================
+                // Select root.era.
+                // =========================================================
+
+                OpenFileDialog dialog =
+                    new OpenFileDialog
+                    {
+                        Title =
+                            "Select Halo Wars root.era",
+
+                        FileName =
+                            "root.era",
+
+                        Filter =
+                            "Halo Wars root archive (root.era)|root.era|" +
+                            "Halo Wars ERA (*.era)|*.era",
+
+                        CheckFileExists =
+                            true,
+
+                        Multiselect =
+                            false
+                    };
+
+
+                if (dialog.ShowDialog(
+                        this) !=
+                    true)
+                {
+                    return;
+                }
+
+
+                string rootPath =
+                    dialog.FileName;
+
+
+                if (!string.Equals(
+                        Path.GetFileName(
+                            rootPath),
+                        "root.era",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show(
+                        this,
+                        "Please select the game's root.era archive.",
+                        "Incorrect Archive",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+
+                    return;
+                }
+
+
+                StatusText.Text =
+                    "Reading root.era...";
+
+
+                EraArchiveInfo rootArchive =
+                    EraArchiveService.Open(
+                        rootPath);
+
+
+                EraChunkInfo descriptionsChunk =
+                    ScenarioDescriptionsService
+                        .FindScenarioDescriptionsChunk(
+                            rootArchive);
+
+
+                byte[] originalDescriptionsXmb =
+                    EraExtractionService.ExtractChunk(
+                        rootArchive,
+                        descriptionsChunk);
+
+
+                string templateFile =
+                    ScenarioDescriptionsService
+                        .FindTemplateScenarioFile(
+                            originalDescriptionsXmb,
+                            registrationFile);
+
+
+                // =========================================================
+                // Clone the stock entry.
+                // =========================================================
+
+                StatusText.Text =
+                    "Adding ScenarioInfo entry...";
+
+
+                byte[] modifiedDescriptionsXmb =
+                    XmbDocumentService
+                        .CloneScenarioInfo(
+                            originalDescriptionsXmb,
+                            templateFile,
+                            registrationFile);
+
+
+                Dictionary<int, byte[]>
+                    replacements =
+                        new()
+                        {
+                            [descriptionsChunk.Index] =
+                                modifiedDescriptionsXmb
+                        };
+
+
+                StatusText.Text =
+                    "Rebuilding root.era...";
+
+
+                byte[] rebuiltRoot =
+                    EraRebuildService.BuildModifiedEra(
+                        rootArchive,
+                        replacements);
+
+
+                string tempRootPath =
+                    rootPath +
+                    ".ensemble.tmp";
+
+
+                try
+                {
+                    File.WriteAllBytes(
+                        tempRootPath,
+                        rebuiltRoot);
+
+
+                    // =====================================================
+                    // Reopen and verify root.era before touching original.
+                    // =====================================================
+
+                    EraArchiveInfo verificationArchive =
+                        EraArchiveService.Open(
+                            tempRootPath);
+
+
+                    if (descriptionsChunk.Index >=
+                        verificationArchive.Chunks.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Rebuilt root.era lost " +
+                            "ScenarioDescriptions.");
+                    }
+
+
+                    EraChunkInfo verificationDescriptionsChunk =
+                        verificationArchive.Chunks[
+                            descriptionsChunk.Index];
+
+
+                    byte[] verificationDescriptionsXmb =
+                        EraExtractionService.ExtractChunk(
+                            verificationArchive,
+                            verificationDescriptionsChunk);
+
+
+                    if (!ScenarioDescriptionsService
+                            .ContainsScenarioFile(
+                                verificationDescriptionsXmb,
+                                registrationFile))
+                    {
+                        throw new InvalidDataException(
+                            "ScenarioDescriptions verification failed.\n\n" +
+                            "The new custom ScenarioInfo could not be found.");
+                    }
+
+
+                    // =====================================================
+                    // Copy custom ERA beside root.era.
+                    // =====================================================
+
+                    string installDirectory =
+                        Path.GetDirectoryName(
+                            rootPath)
+                        ?? throw new InvalidDataException(
+                            "Unable to determine Halo Wars directory.");
+
+
+                    string installedMapPath =
+                        Path.Combine(
+                            installDirectory,
+                            _currentArchive.FileName);
+
+
+                    if (!string.Equals(
+                            _currentArchive.FilePath,
+                            installedMapPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Preserve an older installed version if one exists.
+                        CreateSaveBackupIfNeeded(
+                            installedMapPath);
+
+
+                        File.Copy(
+                            _currentArchive.FilePath,
+                            installedMapPath,
+                            overwrite: true);
+                    }
+
+
+                    // =====================================================
+                    // root.era is verified.
+                    //
+                    // Back up original before replacing it.
+                    // =====================================================
+
+                    CreateSaveBackupIfNeeded(
+                        rootPath);
+
+
+                    File.Copy(
+                        tempRootPath,
+                        rootPath,
+                        overwrite: true);
+
+
+                    File.Delete(
+                        tempRootPath);
+
+
+                    StatusText.Text =
+                        $"Registered {eraBasename}.";
+
+
+                    MessageBox.Show(
+                        this,
+                        "Custom map registration completed successfully.\n\n" +
+
+                        $"Installed ERA:\n" +
+                        $"{installedMapPath}\n\n" +
+
+                        $"Scenario:\n" +
+                        $"{registrationFile}\n\n" +
+
+                        $"Template:\n" +
+                        $"{templateFile}\n\n" +
+
+                        "root.era was rebuilt and verified before replacement.\n" +
+                        "The original root.era has been preserved as a backup.",
+                        "Custom Map Registered",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                finally
+                {
+                    if (File.Exists(
+                            tempRootPath))
+                    {
+                        File.Delete(
+                            tempRootPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+                    "Custom Map Registration Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+
+                StatusText.Text =
+                    "Custom map registration failed.";
             }
         }
 

@@ -701,6 +701,445 @@ namespace Ensemble.Services
             return rebuiltXmb;
         }
 
+        public static byte[] CloneScenarioInfo(
+            byte[] originalXmbData,
+            string sourceScenarioFile,
+            string newScenarioFile)
+        {
+            if (originalXmbData == null)
+            {
+                throw new ArgumentNullException(
+                    nameof(originalXmbData));
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                    sourceScenarioFile))
+            {
+                throw new ArgumentException(
+                    "Source scenario file cannot be empty.",
+                    nameof(sourceScenarioFile));
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                    newScenarioFile))
+            {
+                throw new ArgumentException(
+                    "New scenario file cannot be empty.",
+                    nameof(newScenarioFile));
+            }
+
+
+            sourceScenarioFile =
+                sourceScenarioFile
+                    .Replace(
+                        '/',
+                        '\\')
+                    .Trim();
+
+            newScenarioFile =
+                newScenarioFile
+                    .Replace(
+                        '/',
+                        '\\')
+                    .Trim();
+
+
+            byte[] packedData =
+                ExtractPackedXmxData(
+                    originalXmbData);
+
+
+            bool bigEndian;
+
+            uint signatureBig =
+                ReadUInt32(
+                    packedData,
+                    0,
+                    true);
+
+            uint signatureLittle =
+                ReadUInt32(
+                    packedData,
+                    0,
+                    false);
+
+
+            if (signatureBig ==
+                XmxSignature)
+            {
+                bigEndian =
+                    true;
+            }
+            else if (signatureLittle ==
+                     XmxSignature)
+            {
+                bigEndian =
+                    false;
+            }
+            else
+            {
+                throw new InvalidDataException(
+                    "Invalid packed XMX signature.");
+            }
+
+
+            PackedLayout layout =
+                DetectPackedLayout(
+                    packedData,
+                    bigEndian);
+
+            PackedArray originalNodesArray =
+                ReadPackedArray(
+                    packedData,
+                    layout.NodesArrayOffset,
+                    bigEndian,
+                    layout.PointerSize);
+
+            PackedArray originalVariantData =
+                ReadPackedArray(
+                    packedData,
+                    layout.VariantArrayOffset,
+                    bigEndian,
+                    layout.PointerSize);
+
+
+            List<StructuralNode> nodes =
+                new();
+
+
+            // =========================================================
+            // Convert the existing XMX into our structural model.
+            // =========================================================
+
+            for (uint i = 0;
+                 i < originalNodesArray.Count;
+                 i++)
+            {
+                int nodeOffset =
+                    checked(
+                        (int)(
+                            originalNodesArray.Offset +
+                            ((ulong)i *
+                             (ulong)layout.NodeSize)));
+
+
+                XmxNode source =
+                    ParseNode(
+                        packedData,
+                        nodeOffset,
+                        layout,
+                        bigEndian);
+
+
+                StructuralNode node =
+                    new StructuralNode
+                    {
+                        Parent =
+                            source.Parent,
+
+                        NameVariant =
+                            source.NameVariant,
+
+                        TextVariant =
+                            source.TextVariant
+                    };
+
+
+                for (uint a = 0;
+                     a < source.Attributes.Count;
+                     a++)
+                {
+                    int p =
+                        checked(
+                            (int)(
+                                source.Attributes.Offset +
+                                ((ulong)a *
+                                 XmxAttributeSize)));
+
+
+                    uint nameVariant =
+                        ReadUInt32(
+                            packedData,
+                            p,
+                            bigEndian);
+
+                    uint valueVariant =
+                        ReadUInt32(
+                            packedData,
+                            p + 4,
+                            bigEndian);
+
+
+                    node.Attributes.Add(
+                        new StructuralAttribute
+                        {
+                            Name =
+                                DecodeVariant(
+                                    nameVariant,
+                                    packedData,
+                                    originalVariantData,
+                                    bigEndian),
+
+                            NameVariant =
+                                nameVariant,
+
+                            ValueVariant =
+                                valueVariant
+                        });
+                }
+
+
+                for (uint c = 0;
+                     c < source.Children.Count;
+                     c++)
+                {
+                    int p =
+                        checked(
+                            (int)(
+                                source.Children.Offset +
+                                ((ulong)c *
+                                 4)));
+
+
+                    node.Children.Add(
+                        ReadUInt32(
+                            packedData,
+                            p,
+                            bigEndian));
+                }
+
+
+                nodes.Add(
+                    node);
+            }
+
+
+            List<byte> variantBytes =
+                packedData
+                    .AsSpan(
+                        checked(
+                            (int)originalVariantData.Offset),
+                        checked(
+                            (int)originalVariantData.Count))
+                    .ToArray()
+                    .ToList();
+
+
+            int sourceNodeIndex =
+                -1;
+
+            int matchingSourceCount =
+                0;
+
+
+            // =========================================================
+            // Find source ScenarioInfo and make sure target isn't
+            // already registered.
+            // =========================================================
+
+            for (int i = 0;
+                 i < nodes.Count;
+                 i++)
+            {
+                string nodeName =
+                    DecodeVariant(
+                        nodes[i].NameVariant,
+                        packedData,
+                        originalVariantData,
+                        bigEndian);
+
+
+                if (!string.Equals(
+                        nodeName,
+                        "ScenarioInfo",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+
+                StructuralAttribute? fileAttribute =
+                    nodes[i]
+                        .Attributes
+                        .FirstOrDefault(
+                            x =>
+                                string.Equals(
+                                    x.Name,
+                                    "File",
+                                    StringComparison.Ordinal));
+
+
+                if (fileAttribute ==
+                    null)
+                {
+                    continue;
+                }
+
+
+                string file =
+                    DecodeVariant(
+                        fileAttribute.ValueVariant,
+                        packedData,
+                        originalVariantData,
+                        bigEndian)
+                    .Replace(
+                        '/',
+                        '\\')
+                    .Trim();
+
+
+                if (string.Equals(
+                        file,
+                        newScenarioFile,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "ScenarioDescriptions already contains " +
+                        "an entry for:\n\n" +
+                        newScenarioFile);
+                }
+
+
+                if (string.Equals(
+                        file,
+                        sourceScenarioFile,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    sourceNodeIndex =
+                        i;
+
+                    matchingSourceCount++;
+                }
+            }
+
+
+            if (sourceNodeIndex <
+                0)
+            {
+                throw new InvalidDataException(
+                    "Unable to find the source ScenarioInfo:\n\n" +
+                    sourceScenarioFile);
+            }
+
+
+            if (matchingSourceCount !=
+                1)
+            {
+                throw new InvalidDataException(
+                    "ScenarioDescriptions contains multiple " +
+                    "matching source entries:\n\n" +
+                    sourceScenarioFile);
+            }
+
+
+            StructuralNode sourceNode =
+                nodes[
+                    sourceNodeIndex];
+
+
+            if (sourceNode.Parent ==
+                uint.MaxValue)
+            {
+                throw new InvalidDataException(
+                    "ScenarioInfo unexpectedly has no parent node.");
+            }
+
+
+            int parentIndex =
+                checked(
+                    (int)sourceNode.Parent);
+
+
+            if (parentIndex <
+                    0 ||
+                parentIndex >=
+                    nodes.Count)
+            {
+                throw new InvalidDataException(
+                    "ScenarioInfo has an invalid parent node.");
+            }
+
+
+            // =========================================================
+            // Clone the complete ScenarioInfo subtree.
+            //
+            // This preserves:
+            //
+            // NameStringID
+            // InfoStringID
+            // MaxPlayers
+            // Type
+            // LoadingScreen
+            // MapName
+            // and any unknown attributes.
+            // =========================================================
+
+            uint cloneIndex =
+                CloneStructuralSubtree(
+                    nodes,
+                    sourceNodeIndex,
+                    sourceNode.Parent,
+                    packedData,
+                    originalVariantData,
+                    variantBytes,
+                    bigEndian);
+
+
+            nodes[
+                parentIndex]
+                .Children
+                .Add(
+                    cloneIndex);
+
+
+            StructuralNode clone =
+                nodes[
+                    checked(
+                        (int)cloneIndex)];
+
+
+            // Only change the scenario path.
+            SetStructuralStringAttribute(
+                clone,
+                "File",
+                newScenarioFile,
+                variantBytes,
+                bigEndian);
+
+
+            // =========================================================
+            // Rebuild packed XMX and XMB container.
+            // =========================================================
+
+            byte[] rebuiltPackedData =
+                BuildStructuralPackedXmx(
+                    nodes,
+                    variantBytes,
+                    layout,
+                    bigEndian);
+
+
+            byte[] compressed =
+                EraCompressionService
+                    .CompressDeflateStream(
+                        rebuiltPackedData);
+
+
+            byte[] rebuiltXmb =
+                EcfFileService.ReplaceChunk(
+                    originalXmbData,
+                    XmxPackedDataChunkId,
+                    compressed);
+
+
+            // Prove our result can immediately be decoded.
+            _ = Read(
+                rebuiltXmb);
+
+
+            return rebuiltXmb;
+        }
+
         private static void PatchScenarioValues(
             byte[] packedData,
             IReadOnlyList<XmxNode> nodes,
@@ -1075,6 +1514,22 @@ namespace Ensemble.Services
                         originalData,
                         originalVariantData,
                         bigEndian);
+
+                if (nodeName == "Objects")
+                {
+                    if (objectsNodeIndex >=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "Scenario contains more than one " +
+                            "<Objects> XMX node.");
+                    }
+
+                    objectsNodeIndex =
+                        i;
+
+                    continue;
+                }
 
                 if (nodeName == "Lines")
                 {

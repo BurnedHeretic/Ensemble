@@ -233,11 +233,16 @@
                 
 
                 <MenuItem x:Name="CreateCustomMapCopyMenuItem"
-              Header="Create custom scenario files..."
-              Click="CreateCustomMapCopy_Click"
-              IsEnabled="False"/>
+                          Header="Create custom scenario files..."
+                          Click="CreateCustomMapCopy_Click"
+                          IsEnabled="False"/>
 
-                
+                <MenuItem x:Name="RegisterCustomMapMenuItem"
+                          Header="Register Current Custom Map..."
+                          Click="RegisterCustomMap_Click"
+                          IsEnabled="False"/>
+
+
 
             </MenuItem>
 
