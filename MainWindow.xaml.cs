@@ -3677,27 +3677,38 @@ namespace Ensemble
                         "All Files (*.*)|*.*"
                 };
 
+
             if (dialog.ShowDialog(this) !=
                 true)
             {
                 return;
             }
 
+
             MessageBoxResult confirmation =
                 MessageBox.Show(
                     this,
 
-                    "Ensemble will patch this Halo Wars executable " +
-                    "so the game can load unofficial / modified ERA archives.\n\n" +
+                    "Ensemble will apply its Halo Wars modding patches.\n\n" +
 
-                    "A backup of the executable will be created first.\n\n" +
+                    "Supported patch stages:\n" +
+                    "• Modified ERA archive support\n" +
+                    "• Loose-file support\n\n" +
+
+                    "Existing Ensemble patches will be detected and " +
+                    "left unchanged. Any missing supported patches will " +
+                    "be applied automatically.\n\n" +
+
+                    "An untouched backup of the executable will be " +
+                    "preserved.\n\n" +
 
                     "Continue?",
 
-                    "Patch Halo Wars Executable",
+                    "Apply Ensemble Modding Patch",
 
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
+
 
             if (confirmation !=
                 MessageBoxResult.Yes)
@@ -3705,52 +3716,74 @@ namespace Ensemble
                 return;
             }
 
+
             try
             {
                 StatusText.Text =
-                    "Patching Halo Wars executable...";
+                    "Checking Halo Wars modding patches...";
+
 
                 HaloWarsExePatchResult result =
                     HaloWarsExePatchService.Patch(
                         dialog.FileName);
 
-                if (result.AlreadyPatched)
-                {
-                    MessageBox.Show(
-                        this,
 
-                        "This Halo Wars executable already appears " +
-                        "to be patched for modified ERA archives.",
+                string eraStatus =
+                    result.EraSignaturePatchChanged
+                        ? "Applied now"
+                        : "Already present";
 
-                        "Executable Already Patched",
 
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                string looseStatus =
+                    result.LooseFilesPatchChanged
+                        ? "Applied now"
+                        : "Already present";
 
-                    StatusText.Text =
-                        "Halo Wars executable is already patched.";
 
-                    return;
-                }
+                string overallStatus =
+                    result.WasModified
+                        ? "Ensemble updated the executable."
+                        : "The executable already contains all supported Ensemble patches.";
+
+
+                string backupText =
+                    string.IsNullOrWhiteSpace(
+                        result.BackupPath)
+                        ? "Existing untouched backup preserved."
+                        : $"Backup:\n{result.BackupPath}";
+
 
                 MessageBox.Show(
                     this,
 
-                    "Halo Wars executable patched successfully.\n\n" +
+                    $"{overallStatus}\n\n" +
 
-                    $"Patch offset: 0x{result.PatchOffset:X}\n\n" +
+                    "ERA signature bypass:\n" +
+                    $"{eraStatus}\n" +
+                    $"Offset: 0x{result.EraSignaturePatchOffset:X}\n\n" +
 
-                    $"Backup:\n{result.BackupPath}\n\n" +
+                    "Loose-file support:\n" +
+                    $"{looseStatus}\n" +
+                    $"Offset: 0x{result.LooseFilesPatchOffset:X}\n\n" +
 
-                    "You can now test Ensemble-generated ERA files.",
+                    $"{backupText}\n\n" +
 
-                    "Halo Wars EXE Patched",
+                    "SHA1 Before:\n" +
+                    $"{result.Sha1Before}\n\n" +
+
+                    "SHA1 After:\n" +
+                    $"{result.Sha1After}",
+
+                    "Ensemble Modding Patch",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
 
+
                 StatusText.Text =
-                    "Halo Wars executable patched successfully.";
+                    result.WasModified
+                        ? "Halo Wars EXE updated with Ensemble modding patches."
+                        : "Halo Wars EXE is already fully Ensemble-patched.";
             }
             catch (Exception ex)
             {
@@ -3762,6 +3795,7 @@ namespace Ensemble
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
+
 
                 StatusText.Text =
                     "Halo Wars executable patch failed.";
