@@ -242,6 +242,12 @@
                           Click="RegisterCustomMap_Click"
                           IsEnabled="False"/>
 
+                <MenuItem Header="Test Loose ScenarioDescriptions..."
+                          Click="TestLooseScenarioDescriptions_Click"/>
+
+                <MenuItem Header="Test Duplicate Blood Gulch..."
+                          Click="TestDuplicateBloodGulch_Click"/>
+
 
 
             </MenuItem>

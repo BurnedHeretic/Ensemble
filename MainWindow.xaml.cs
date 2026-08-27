@@ -4457,6 +4457,754 @@ namespace Ensemble
             }
         }
 
+        private void TestLooseScenarioDescriptions_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            OpenFileDialog dialog =
+                new OpenFileDialog
+                {
+                    Title =
+                        "Select Halo Wars Definitive Edition Executable",
+
+                    FileName =
+                        "xgameFinal.exe",
+
+                    Filter =
+                        "Halo Wars Executable (xgameFinal.exe)|xgameFinal.exe|" +
+                        "Executable Files (*.exe)|*.exe|" +
+                        "All Files (*.*)|*.*",
+
+                    CheckFileExists =
+                        true,
+
+                    Multiselect =
+                        false
+                };
+
+
+            if (dialog.ShowDialog(
+                    this) !=
+                true)
+            {
+                return;
+            }
+
+
+            try
+            {
+                string exePath =
+                    dialog.FileName;
+
+
+                string gameDirectory =
+                    Path.GetDirectoryName(
+                        exePath)
+                    ?? throw new InvalidDataException(
+                        "Unable to determine the Halo Wars game directory.");
+
+
+                string rootPath =
+                    Path.Combine(
+                        gameDirectory,
+                        "root.era");
+
+
+                if (!File.Exists(
+                        rootPath))
+                {
+                    throw new FileNotFoundException(
+                        "Ensemble could not find root.era beside xgameFinal.exe.\n\n" +
+                        rootPath,
+                        rootPath);
+                }
+
+
+                // =========================================================
+                // Make sure this EXE has every current Ensemble patch.
+                //
+                // This is safe to call repeatedly because the patcher is
+                // now idempotent.
+                // =========================================================
+
+                StatusText.Text =
+                    "Checking Ensemble EXE patches...";
+
+
+                HaloWarsExePatchResult patchResult =
+                    HaloWarsExePatchService.Patch(
+                        exePath);
+
+
+                if (!patchResult.EraSignatureBypassEnabled ||
+                    !patchResult.LooseFilesEnabled)
+                {
+                    throw new InvalidDataException(
+                        "The Halo Wars executable did not pass " +
+                        "Ensemble patch verification.");
+                }
+
+
+                // =========================================================
+                // Read the STOCK root.era.
+                //
+                // IMPORTANT:
+                // We are only READING root.era from this point onward.
+                // It will not be rebuilt or replaced.
+                // =========================================================
+
+                StatusText.Text =
+                    "Reading stock ScenarioDescriptions...";
+
+
+                EraArchiveInfo rootArchive =
+                    EraArchiveService.Open(
+                        rootPath);
+
+
+                EraChunkInfo descriptionsChunk =
+                    ScenarioDescriptionsService
+                        .FindScenarioDescriptionsChunk(
+                            rootArchive);
+
+
+                byte[] descriptionsXmb =
+                    EraExtractionService.ExtractChunk(
+                        rootArchive,
+                        descriptionsChunk);
+
+
+                // =========================================================
+                // Decode the archived XMB into normal XML.
+                // =========================================================
+
+                string xml =
+                    XmbDocumentService.Read(
+                        descriptionsXmb);
+
+
+                // Validate the XML before writing anything.
+                System.Xml.Linq.XDocument document =
+                    System.Xml.Linq.XDocument.Parse(
+                        xml);
+
+
+                int scenarioCount =
+                    document
+                        .Descendants()
+                        .Count(
+                            x =>
+                                string.Equals(
+                                    x.Name.LocalName,
+                                    "ScenarioInfo",
+                                    StringComparison.Ordinal));
+
+
+                if (scenarioCount <=
+                    0)
+                {
+                    throw new InvalidDataException(
+                        "Decoded ScenarioDescriptions contains " +
+                        "no ScenarioInfo entries.");
+                }
+
+
+                // =========================================================
+                // Create:
+                //
+                // HaloWarsDE\
+                //     data\
+                //         scenariodescriptions.xml
+                // =========================================================
+
+                string dataDirectory =
+                    Path.Combine(
+                        gameDirectory,
+                        "data");
+
+
+                Directory.CreateDirectory(
+                    dataDirectory);
+
+
+                string loosePath =
+                    Path.Combine(
+                        dataDirectory,
+                        "scenariodescriptions.xml");
+
+
+                // =========================================================
+                // Preserve an existing loose ScenarioDescriptions file.
+                //
+                // This backup is separate from root.era because root.era
+                // remains completely untouched.
+                // =========================================================
+
+                string looseBackupPath =
+                    Path.Combine(
+                        dataDirectory,
+                        "scenariodescriptions.pre_ensemble_backup.xml");
+
+
+                if (File.Exists(
+                        loosePath) &&
+                    !File.Exists(
+                        looseBackupPath))
+                {
+                    File.Copy(
+                        loosePath,
+                        looseBackupPath,
+                        overwrite: false);
+                }
+
+
+                string tempPath =
+                    loosePath +
+                    ".ensemble.tmp";
+
+
+                try
+                {
+                    // UTF-8 without BOM.
+                    //
+                    // The XML declaration generated by Ensemble does not
+                    // require an explicit encoding field.
+                    File.WriteAllText(
+                        tempPath,
+                        xml,
+                        new System.Text.UTF8Encoding(
+                            encoderShouldEmitUTF8Identifier: false));
+
+
+                    // =====================================================
+                    // Re-read the actual disk file before installing it.
+                    // =====================================================
+
+                    string verificationXml =
+                        File.ReadAllText(
+                            tempPath,
+                            new System.Text.UTF8Encoding(
+                                encoderShouldEmitUTF8Identifier: false));
+
+
+                    System.Xml.Linq.XDocument
+                        verificationDocument =
+                            System.Xml.Linq.XDocument.Parse(
+                                verificationXml);
+
+
+                    int verificationCount =
+                        verificationDocument
+                            .Descendants()
+                            .Count(
+                                x =>
+                                    string.Equals(
+                                        x.Name.LocalName,
+                                        "ScenarioInfo",
+                                        StringComparison.Ordinal));
+
+
+                    if (verificationCount !=
+                        scenarioCount)
+                    {
+                        throw new InvalidDataException(
+                            "Loose ScenarioDescriptions verification failed.\n\n" +
+
+                            $"Original entries: {scenarioCount}\n" +
+                            $"Written entries:  {verificationCount}");
+                    }
+
+
+                    File.Copy(
+                        tempPath,
+                        loosePath,
+                        overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(
+                            tempPath))
+                    {
+                        File.Delete(
+                            tempPath);
+                    }
+                }
+
+
+                // =========================================================
+                // Give the loose file an unmistakably fresh timestamp.
+                //
+                // Halo Wars compares the XML and XMB timestamps.
+                // =========================================================
+
+                File.SetLastWriteTimeUtc(
+                    loosePath,
+                    DateTime.UtcNow);
+
+
+                StatusText.Text =
+                    "Loose ScenarioDescriptions test file installed.";
+
+
+                MessageBox.Show(
+                    this,
+
+                    "Loose-file ScenarioDescriptions test installed successfully.\n\n" +
+
+                    $"Scenario entries: {scenarioCount}\n\n" +
+
+                    $"Loose XML:\n" +
+                    $"{loosePath}\n\n" +
+
+                    "root.era was READ ONLY and was not modified.\n\n" +
+
+                    "Now launch Halo Wars normally using the " +
+                    "Ensemble-patched xgameFinal.exe.\n\n" +
+
+                    "For this first test the map list should look exactly " +
+                    "like stock Halo Wars. We are only proving that the game " +
+                    "can boot and use a loose ScenarioDescriptions file.",
+
+                    "Loose File Test Ready",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+
+                    "Loose ScenarioDescriptions Test Failed",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+
+                StatusText.Text =
+                    "Loose ScenarioDescriptions test failed.";
+            }
+        }
+
+        private void TestDuplicateBloodGulch_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            OpenFileDialog dialog =
+                new OpenFileDialog
+                {
+                    Title =
+                        "Select Halo Wars Definitive Edition Executable",
+
+                    FileName =
+                        "xgameFinal.exe",
+
+                    Filter =
+                        "Halo Wars Executable (xgameFinal.exe)|xgameFinal.exe|" +
+                        "Executable Files (*.exe)|*.exe|" +
+                        "All Files (*.*)|*.*",
+
+                    CheckFileExists =
+                        true,
+
+                    Multiselect =
+                        false
+                };
+
+
+            if (dialog.ShowDialog(
+                    this) !=
+                true)
+            {
+                return;
+            }
+
+
+            try
+            {
+                string exePath =
+                    dialog.FileName;
+
+
+                string gameDirectory =
+                    Path.GetDirectoryName(
+                        exePath)
+                    ?? throw new InvalidDataException(
+                        "Unable to determine the Halo Wars game directory.");
+
+
+                string rootPath =
+                    Path.Combine(
+                        gameDirectory,
+                        "root.era");
+
+
+                if (!File.Exists(
+                        rootPath))
+                {
+                    throw new FileNotFoundException(
+                        "root.era was not found beside xgameFinal.exe.",
+                        rootPath);
+                }
+
+
+                // =========================================================
+                // Verify / update the universal Ensemble patch.
+                // =========================================================
+
+                StatusText.Text =
+                    "Checking Ensemble EXE patches...";
+
+
+                HaloWarsExePatchResult patchResult =
+                    HaloWarsExePatchService.Patch(
+                        exePath);
+
+
+                if (!patchResult.EraSignatureBypassEnabled ||
+                    !patchResult.LooseFilesEnabled)
+                {
+                    throw new InvalidDataException(
+                        "The Halo Wars executable does not contain " +
+                        "all required Ensemble patches.");
+                }
+
+
+                // =========================================================
+                // Read ScenarioDescriptions from STOCK root.era.
+                // root.era remains completely untouched.
+                // =========================================================
+
+                StatusText.Text =
+                    "Reading stock ScenarioDescriptions...";
+
+
+                EraArchiveInfo rootArchive =
+                    EraArchiveService.Open(
+                        rootPath);
+
+
+                EraChunkInfo descriptionsChunk =
+                    ScenarioDescriptionsService
+                        .FindScenarioDescriptionsChunk(
+                            rootArchive);
+
+
+                byte[] descriptionsXmb =
+                    EraExtractionService.ExtractChunk(
+                        rootArchive,
+                        descriptionsChunk);
+
+
+                string xml =
+                    XmbDocumentService.Read(
+                        descriptionsXmb);
+
+
+                System.Xml.Linq.XDocument document =
+                    System.Xml.Linq.XDocument.Parse(
+                        xml);
+
+
+                // =========================================================
+                // Find stock Blood Gulch.
+                // =========================================================
+
+                const string bloodGulchFile =
+                    "skirmish\\design\\blood_gulch\\blood_gulch.scn";
+
+
+                System.Xml.Linq.XElement? bloodGulch =
+                    document
+                        .Descendants()
+                        .FirstOrDefault(
+                            x =>
+                            {
+                                if (!string.Equals(
+                                        x.Name.LocalName,
+                                        "ScenarioInfo",
+                                        StringComparison.Ordinal))
+                                {
+                                    return false;
+                                }
+
+
+                                string? file =
+                                    x.Attribute(
+                                        "File")
+                                    ?.Value;
+
+
+                                if (file ==
+                                    null)
+                                {
+                                    return false;
+                                }
+
+
+                                file =
+                                    file
+                                        .Replace(
+                                            '/',
+                                            '\\')
+                                        .Trim();
+
+
+                                return string.Equals(
+                                    file,
+                                    bloodGulchFile,
+                                    StringComparison.OrdinalIgnoreCase);
+                            });
+
+
+                if (bloodGulch ==
+                    null)
+                {
+                    throw new InvalidDataException(
+                        "Unable to locate the stock Blood Gulch " +
+                        "ScenarioInfo entry.");
+                }
+
+
+                // =========================================================
+                // Clone the complete entry.
+                //
+                // SAME:
+                // NameStringID
+                // InfoStringID
+                // MaxPlayers
+                // Type
+                // File
+                // LoadingScreen
+                // MapName
+                //
+                // This deliberately gives us two identical Blood Gulches.
+                // =========================================================
+
+                System.Xml.Linq.XElement duplicate =
+                    new System.Xml.Linq.XElement(
+                        bloodGulch);
+
+
+                bloodGulch.AddAfterSelf(
+                    duplicate);
+
+
+                int stockEntryCount =
+                    document
+                        .Descendants()
+                        .Count(
+                            x =>
+                                string.Equals(
+                                    x.Name.LocalName,
+                                    "ScenarioInfo",
+                                    StringComparison.Ordinal));
+
+
+                // Should now be 81 based on the current stock file.
+                if (stockEntryCount <
+                    2)
+                {
+                    throw new InvalidDataException(
+                        "ScenarioDescriptions duplication failed.");
+                }
+
+
+                // =========================================================
+                // Write loose ScenarioDescriptions.
+                // =========================================================
+
+                string dataDirectory =
+                    Path.Combine(
+                        gameDirectory,
+                        "data");
+
+
+                Directory.CreateDirectory(
+                    dataDirectory);
+
+
+                string loosePath =
+                    Path.Combine(
+                        dataDirectory,
+                        "scenariodescriptions.xml");
+
+
+                string backupPath =
+                    Path.Combine(
+                        dataDirectory,
+                        "scenariodescriptions.pre_ensemble_backup.xml");
+
+
+                // Preserve the working stock loose XML from our last test.
+                if (File.Exists(
+                        loosePath) &&
+                    !File.Exists(
+                        backupPath))
+                {
+                    File.Copy(
+                        loosePath,
+                        backupPath,
+                        overwrite: false);
+                }
+
+
+                string tempPath =
+                    loosePath +
+                    ".ensemble.tmp";
+
+
+                try
+                {
+                    System.Xml.XmlWriterSettings settings =
+                        new System.Xml.XmlWriterSettings
+                        {
+                            Indent =
+                                true,
+
+                            Encoding =
+                                new System.Text.UTF8Encoding(
+                                    encoderShouldEmitUTF8Identifier: false),
+
+                            NewLineChars =
+                                Environment.NewLine,
+
+                            NewLineHandling =
+                                System.Xml.NewLineHandling.Replace
+                        };
+
+
+                    using (System.Xml.XmlWriter writer =
+                           System.Xml.XmlWriter.Create(
+                               tempPath,
+                               settings))
+                    {
+                        document.Save(
+                            writer);
+                    }
+
+
+                    // Reopen what we actually wrote.
+                    System.Xml.Linq.XDocument verification =
+                        System.Xml.Linq.XDocument.Load(
+                            tempPath);
+
+
+                    int bloodGulchCount =
+                        verification
+                            .Descendants()
+                            .Count(
+                                x =>
+                                {
+                                    if (!string.Equals(
+                                            x.Name.LocalName,
+                                            "ScenarioInfo",
+                                            StringComparison.Ordinal))
+                                    {
+                                        return false;
+                                    }
+
+
+                                    string? file =
+                                        x.Attribute(
+                                            "File")
+                                        ?.Value;
+
+
+                                    if (file ==
+                                        null)
+                                    {
+                                        return false;
+                                    }
+
+
+                                    return string.Equals(
+                                        file
+                                            .Replace(
+                                                '/',
+                                                '\\')
+                                            .Trim(),
+                                        bloodGulchFile,
+                                        StringComparison.OrdinalIgnoreCase);
+                                });
+
+
+                    if (bloodGulchCount !=
+                        2)
+                    {
+                        throw new InvalidDataException(
+                            "Loose XML verification failed.\n\n" +
+                            $"Blood Gulch entries found: {bloodGulchCount}");
+                    }
+
+
+                    File.Copy(
+                        tempPath,
+                        loosePath,
+                        overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(
+                            tempPath))
+                    {
+                        File.Delete(
+                            tempPath);
+                    }
+                }
+
+
+                // Make it unquestionably newer than archived data.
+                File.SetLastWriteTimeUtc(
+                    loosePath,
+                    DateTime.UtcNow);
+
+
+                StatusText.Text =
+                    "Duplicate Blood Gulch loose-file test installed.";
+
+
+                MessageBox.Show(
+                    this,
+
+                    "Loose ScenarioDescriptions proof test is ready.\n\n" +
+
+                    $"Scenario entries: {stockEntryCount}\n" +
+
+                    "Blood Gulch entries: 2\n\n" +
+
+                    $"Loose XML:\n{loosePath}\n\n" +
+
+                    "root.era was NOT modified.\n\n" +
+
+                    "Launch Halo Wars and open the 1v1 skirmish map list.\n\n" +
+
+                    "PASS CONDITION:\n" +
+                    "Two Blood Gulch entries appear.",
+
+                    "Duplicate Blood Gulch Test Ready",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+
+                    "Duplicate Blood Gulch Test Failed",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+
+                StatusText.Text =
+                    "Duplicate Blood Gulch test failed.";
+            }
+        }
+
         private static bool IsSafeScenarioBasename(
             string value)
         {
