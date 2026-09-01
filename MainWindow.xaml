@@ -238,15 +238,9 @@
                           IsEnabled="False"/>
 
                 <MenuItem x:Name="RegisterCustomMapMenuItem"
-                          Header="Register Current Custom Map..."
+                          Header="Export Map to Halo Wars..."
                           Click="RegisterCustomMap_Click"
                           IsEnabled="False"/>
-
-                <MenuItem Header="Test Loose ScenarioDescriptions..."
-                          Click="TestLooseScenarioDescriptions_Click"/>
-
-                <MenuItem Header="Test Duplicate Blood Gulch..."
-                          Click="TestDuplicateBloodGulch_Click"/>
 
 
 

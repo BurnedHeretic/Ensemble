@@ -2794,12 +2794,12 @@ namespace Ensemble.Services
         }
 
         private static void WritePackedArrayHeader(
-    byte[] data,
-    int offset,
-    uint count,
-    ulong pointer,
-    int pointerSize,
-    bool bigEndian)
+            byte[] data,
+            int offset,
+            uint count,
+            ulong pointer,
+            int pointerSize,
+            bool bigEndian)
         {
             WriteVariantUInt32(
                 data,
@@ -2809,12 +2809,28 @@ namespace Ensemble.Services
 
             if (pointerSize == 8)
             {
+                // IMPORTANT:
+                //
+                // Halo Wars' packed-array null pointer is the
+                // 32-bit sentinel 0xFFFFFFFF even inside the
+                // DE 64-bit packed layout.
+                //
+                // Stock XMB:
+                //
+                // FF FF FF FF 00 00 00 00
+                //
+                // = 0x00000000FFFFFFFF
+                //
+                // Do NOT use ulong.MaxValue here.
+                ulong packedPointer =
+                    count == 0
+                        ? 0x00000000FFFFFFFFUL
+                        : pointer;
+
                 WriteUInt64Value(
                     data,
                     offset + 8,
-                    count == 0
-                        ? ulong.MaxValue
-                        : pointer,
+                    packedPointer,
                     bigEndian);
             }
             else
@@ -2824,8 +2840,7 @@ namespace Ensemble.Services
                     offset + 4,
                     count == 0
                         ? uint.MaxValue
-                        : checked(
-                            (uint)pointer),
+                        : checked((uint)pointer),
                     bigEndian);
             }
         }

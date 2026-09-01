@@ -4002,8 +4002,35 @@ namespace Ensemble
                     required: false);
 
 
+                // ---------------------------------------------------------
+                // Scenario-derived runtime companions.
+                //
+                // Halo Wars derives these names from the selected scenario
+                // basename rather than solely from references inside SCN.
+                // ---------------------------------------------------------
+
+                AddScenarioCompanionRename(
+                    _currentArchive,
+                    renames,
+                    directory,
+                    oldBasename,
+                    newBasename,
+                    ".xsd",
+                    required: true);
+
+
+                AddScenarioCompanionRename(
+                    _currentArchive,
+                    renames,
+                    directory,
+                    oldBasename,
+                    newBasename,
+                    ".lrp",
+                    required: false);
+
+
                 StatusText.Text =
-                    "Creating custom scenario alias...";
+                    "Creating custom scenario ERA...";
 
 
                 byte[] result =
@@ -4030,26 +4057,28 @@ namespace Ensemble
                             tempPath);
 
 
-                    string expectedScn =
-                        directory +
-                        newBasename +
-                        ".scn.xmb";
+                    // =========================================================
+                    // Verify every filename alias that we requested.
+                    // =========================================================
 
-
-                    bool found =
-                        verification.Chunks.Any(
-                            x =>
-                                string.Equals(
-                                    x.FileName,
-                                    expectedScn,
-                                    StringComparison.OrdinalIgnoreCase));
-
-
-                    if (!found)
+                    foreach (string expectedFile
+                             in renames.Values)
                     {
-                        throw new InvalidDataException(
-                            "Custom ERA verification failed: " +
-                            "renamed SCN was not found.");
+                        bool found =
+                            verification.Chunks.Any(
+                                x =>
+                                    string.Equals(
+                                        x.FileName,
+                                        expectedFile,
+                                        StringComparison.OrdinalIgnoreCase));
+
+                        if (!found)
+                        {
+                            throw new InvalidDataException(
+                                "Custom ERA verification failed.\n\n" +
+                                "The rebuilt archive is missing:\n\n" +
+                                expectedFile);
+                        }
                     }
 
 
@@ -4070,17 +4099,18 @@ namespace Ensemble
 
 
                 StatusText.Text =
-                    $"Created custom map: {newBasename}.era";
+                    $"Created custom ERA: {newBasename}.era";
 
 
                 MessageBox.Show(
                     this,
                     "Custom map archive created successfully.\n\n" +
                     $"Archive: {Path.GetFileName(dialog.FileName)}\n" +
-                    $"Scenario: {newBasename}.scn\n\n" +
-                    "Next we can register this scenario in " +
-                    "ScenarioDescriptions.",
-                    "Custom Map Created",
+                    $"Scenario: {newBasename}.scn\n" +
+                    $"Aliased files: {renames.Count}\n\n" +
+                    "Open the new ERA in Ensemble, then use " +
+                    "'Register Current Custom Map...' to install it.",
+                    "Custom ERA Created",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
             }
@@ -4112,7 +4142,7 @@ namespace Ensemble
 
 
             // =========================================================
-            // Save current map first.
+            // Save current edits before installation.
             // =========================================================
 
             if (_isDirty)
@@ -4120,9 +4150,12 @@ namespace Ensemble
                 MessageBoxResult result =
                     MessageBox.Show(
                         this,
+
                         "The current map contains unsaved changes.\n\n" +
-                        "Save them before registering the custom map?",
-                        "Register Custom Map",
+                        "Save them before installing the custom map?",
+
+                        "Install Custom Map",
+
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Question);
 
@@ -4143,6 +4176,10 @@ namespace Ensemble
 
             try
             {
+                // =========================================================
+                // Determine custom ScenarioDescriptions path.
+                // =========================================================
+
                 string registrationFile =
                     ScenarioDescriptionsService
                         .BuildScenarioRegistrationPath(
@@ -4159,11 +4196,9 @@ namespace Ensemble
                         _currentArchive.FileName);
 
 
-                // -----------------------------------------------------
-                // Critical:
-                //
-                // ERA basename and scenario basename must match.
-                // -----------------------------------------------------
+                // =========================================================
+                // ERA basename and internal SCN basename MUST match.
+                // =========================================================
 
                 if (!string.Equals(
                         scenarioBasename,
@@ -4172,36 +4207,46 @@ namespace Ensemble
                 {
                     MessageBox.Show(
                         this,
-                        "This ERA cannot be registered as a separate map yet.\n\n" +
+
+                        "This ERA is not ready to be installed as a " +
+                        "separate custom map.\n\n" +
+
                         "The ERA filename and internal scenario basename " +
                         "must match.\n\n" +
-                        $"ERA:      {eraBasename}\n" +
-                        $"Scenario: {scenarioBasename}\n\n" +
+
+                        $"ERA:\n{eraBasename}\n\n" +
+
+                        $"Scenario:\n{scenarioBasename}\n\n" +
+
                         "Use 'Create custom scenario files...' first.",
+
                         "Custom Map Naming Mismatch",
+
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
+
 
                     return;
                 }
 
 
                 // =========================================================
-                // Select root.era.
+                // Select game EXE rather than root.era.
                 // =========================================================
 
                 OpenFileDialog dialog =
                     new OpenFileDialog
                     {
                         Title =
-                            "Select Halo Wars root.era",
+                            "Select Halo Wars Definitive Edition Executable",
 
                         FileName =
-                            "root.era",
+                            "xgameFinal.exe",
 
                         Filter =
-                            "Halo Wars root archive (root.era)|root.era|" +
-                            "Halo Wars ERA (*.era)|*.era",
+                            "Halo Wars Executable (xgameFinal.exe)|xgameFinal.exe|" +
+                            "Executable Files (*.exe)|*.exe|" +
+                            "All Files (*.*)|*.*",
 
                         CheckFileExists =
                             true,
@@ -4219,280 +4264,6 @@ namespace Ensemble
                 }
 
 
-                string rootPath =
-                    dialog.FileName;
-
-
-                if (!string.Equals(
-                        Path.GetFileName(
-                            rootPath),
-                        "root.era",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    MessageBox.Show(
-                        this,
-                        "Please select the game's root.era archive.",
-                        "Incorrect Archive",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-
-                    return;
-                }
-
-
-                StatusText.Text =
-                    "Reading root.era...";
-
-
-                EraArchiveInfo rootArchive =
-                    EraArchiveService.Open(
-                        rootPath);
-
-
-                EraChunkInfo descriptionsChunk =
-                    ScenarioDescriptionsService
-                        .FindScenarioDescriptionsChunk(
-                            rootArchive);
-
-
-                byte[] originalDescriptionsXmb =
-                    EraExtractionService.ExtractChunk(
-                        rootArchive,
-                        descriptionsChunk);
-
-
-                string templateFile =
-                    ScenarioDescriptionsService
-                        .FindTemplateScenarioFile(
-                            originalDescriptionsXmb,
-                            registrationFile);
-
-
-                // =========================================================
-                // Clone the stock entry.
-                // =========================================================
-
-                StatusText.Text =
-                    "Adding ScenarioInfo entry...";
-
-
-                byte[] modifiedDescriptionsXmb =
-                    XmbDocumentService
-                        .CloneScenarioInfo(
-                            originalDescriptionsXmb,
-                            templateFile,
-                            registrationFile);
-
-
-                Dictionary<int, byte[]>
-                    replacements =
-                        new()
-                        {
-                            [descriptionsChunk.Index] =
-                                modifiedDescriptionsXmb
-                        };
-
-
-                StatusText.Text =
-                    "Rebuilding root.era...";
-
-
-                byte[] rebuiltRoot =
-                    EraRebuildService.BuildModifiedEra(
-                        rootArchive,
-                        replacements);
-
-
-                string tempRootPath =
-                    rootPath +
-                    ".ensemble.tmp";
-
-
-                try
-                {
-                    File.WriteAllBytes(
-                        tempRootPath,
-                        rebuiltRoot);
-
-
-                    // =====================================================
-                    // Reopen and verify root.era before touching original.
-                    // =====================================================
-
-                    EraArchiveInfo verificationArchive =
-                        EraArchiveService.Open(
-                            tempRootPath);
-
-
-                    if (descriptionsChunk.Index >=
-                        verificationArchive.Chunks.Count)
-                    {
-                        throw new InvalidDataException(
-                            "Rebuilt root.era lost " +
-                            "ScenarioDescriptions.");
-                    }
-
-
-                    EraChunkInfo verificationDescriptionsChunk =
-                        verificationArchive.Chunks[
-                            descriptionsChunk.Index];
-
-
-                    byte[] verificationDescriptionsXmb =
-                        EraExtractionService.ExtractChunk(
-                            verificationArchive,
-                            verificationDescriptionsChunk);
-
-
-                    if (!ScenarioDescriptionsService
-                            .ContainsScenarioFile(
-                                verificationDescriptionsXmb,
-                                registrationFile))
-                    {
-                        throw new InvalidDataException(
-                            "ScenarioDescriptions verification failed.\n\n" +
-                            "The new custom ScenarioInfo could not be found.");
-                    }
-
-
-                    // =====================================================
-                    // Copy custom ERA beside root.era.
-                    // =====================================================
-
-                    string installDirectory =
-                        Path.GetDirectoryName(
-                            rootPath)
-                        ?? throw new InvalidDataException(
-                            "Unable to determine Halo Wars directory.");
-
-
-                    string installedMapPath =
-                        Path.Combine(
-                            installDirectory,
-                            _currentArchive.FileName);
-
-
-                    if (!string.Equals(
-                            _currentArchive.FilePath,
-                            installedMapPath,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Preserve an older installed version if one exists.
-                        CreateSaveBackupIfNeeded(
-                            installedMapPath);
-
-
-                        File.Copy(
-                            _currentArchive.FilePath,
-                            installedMapPath,
-                            overwrite: true);
-                    }
-
-
-                    // =====================================================
-                    // root.era is verified.
-                    //
-                    // Back up original before replacing it.
-                    // =====================================================
-
-                    CreateSaveBackupIfNeeded(
-                        rootPath);
-
-
-                    File.Copy(
-                        tempRootPath,
-                        rootPath,
-                        overwrite: true);
-
-
-                    File.Delete(
-                        tempRootPath);
-
-
-                    StatusText.Text =
-                        $"Registered {eraBasename}.";
-
-
-                    MessageBox.Show(
-                        this,
-                        "Custom map registration completed successfully.\n\n" +
-
-                        $"Installed ERA:\n" +
-                        $"{installedMapPath}\n\n" +
-
-                        $"Scenario:\n" +
-                        $"{registrationFile}\n\n" +
-
-                        $"Template:\n" +
-                        $"{templateFile}\n\n" +
-
-                        "root.era was rebuilt and verified before replacement.\n" +
-                        "The original root.era has been preserved as a backup.",
-                        "Custom Map Registered",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
-                }
-                finally
-                {
-                    if (File.Exists(
-                            tempRootPath))
-                    {
-                        File.Delete(
-                            tempRootPath);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    this,
-                    ex.ToString(),
-                    "Custom Map Registration Failed",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-
-
-                StatusText.Text =
-                    "Custom map registration failed.";
-            }
-        }
-
-        private void TestLooseScenarioDescriptions_Click(
-            object sender,
-            RoutedEventArgs e)
-        {
-            OpenFileDialog dialog =
-                new OpenFileDialog
-                {
-                    Title =
-                        "Select Halo Wars Definitive Edition Executable",
-
-                    FileName =
-                        "xgameFinal.exe",
-
-                    Filter =
-                        "Halo Wars Executable (xgameFinal.exe)|xgameFinal.exe|" +
-                        "Executable Files (*.exe)|*.exe|" +
-                        "All Files (*.*)|*.*",
-
-                    CheckFileExists =
-                        true,
-
-                    Multiselect =
-                        false
-                };
-
-
-            if (dialog.ShowDialog(
-                    this) !=
-                true)
-            {
-                return;
-            }
-
-
-            try
-            {
                 string exePath =
                     dialog.FileName;
 
@@ -4514,21 +4285,21 @@ namespace Ensemble
                         rootPath))
                 {
                     throw new FileNotFoundException(
-                        "Ensemble could not find root.era beside xgameFinal.exe.\n\n" +
+                        "Ensemble could not find root.era beside " +
+                        "xgameFinal.exe.\n\n" +
                         rootPath,
                         rootPath);
                 }
 
 
                 // =========================================================
-                // Make sure this EXE has every current Ensemble patch.
+                // Make sure the universal Ensemble patch is installed.
                 //
-                // This is safe to call repeatedly because the patcher is
-                // now idempotent.
+                // Safe to call repeatedly.
                 // =========================================================
 
                 StatusText.Text =
-                    "Checking Ensemble EXE patches...";
+                    "Checking Ensemble modding patches...";
 
 
                 HaloWarsExePatchResult patchResult =
@@ -4540,17 +4311,15 @@ namespace Ensemble
                     !patchResult.LooseFilesEnabled)
                 {
                     throw new InvalidDataException(
-                        "The Halo Wars executable did not pass " +
-                        "Ensemble patch verification.");
+                        "The Halo Wars executable does not contain " +
+                        "all required Ensemble patches.");
                 }
 
 
                 // =========================================================
-                // Read the STOCK root.era.
+                // Read STOCK ScenarioDescriptions from root.era.
                 //
-                // IMPORTANT:
-                // We are only READING root.era from this point onward.
-                // It will not be rebuilt or replaced.
+                // root.era is NEVER modified.
                 // =========================================================
 
                 StatusText.Text =
@@ -4568,53 +4337,18 @@ namespace Ensemble
                             rootArchive);
 
 
-                byte[] descriptionsXmb =
+                byte[] stockDescriptionsXmb =
                     EraExtractionService.ExtractChunk(
                         rootArchive,
                         descriptionsChunk);
 
 
                 // =========================================================
-                // Decode the archived XMB into normal XML.
-                // =========================================================
-
-                string xml =
-                    XmbDocumentService.Read(
-                        descriptionsXmb);
-
-
-                // Validate the XML before writing anything.
-                System.Xml.Linq.XDocument document =
-                    System.Xml.Linq.XDocument.Parse(
-                        xml);
-
-
-                int scenarioCount =
-                    document
-                        .Descendants()
-                        .Count(
-                            x =>
-                                string.Equals(
-                                    x.Name.LocalName,
-                                    "ScenarioInfo",
-                                    StringComparison.Ordinal));
-
-
-                if (scenarioCount <=
-                    0)
-                {
-                    throw new InvalidDataException(
-                        "Decoded ScenarioDescriptions contains " +
-                        "no ScenarioInfo entries.");
-                }
-
-
-                // =========================================================
-                // Create:
+                // Locate loose ScenarioDescriptions.
                 //
-                // HaloWarsDE\
-                //     data\
-                //         scenariodescriptions.xml
+                // For this clean test, deliberately rebuild from STOCK
+                // ScenarioDescriptions rather than inheriting the previous
+                // duplicate/proof XML.
                 // =========================================================
 
                 string dataDirectory =
@@ -4633,11 +4367,173 @@ namespace Ensemble
                         "scenariodescriptions.xml");
 
 
+                string? existingLooseXml =
+                    null;
+
+
                 // =========================================================
-                // Preserve an existing loose ScenarioDescriptions file.
+                // Build clean modular ScenarioDescriptions.
+                // =========================================================
+
+                StatusText.Text =
+                    "Registering custom scenario...";
+
+
+                LooseScenarioRegistrationResult registration =
+                    ScenarioDescriptionsService
+                        .BuildOrUpdateLooseScenarioDescriptions(
+                            stockDescriptionsXmb,
+                            existingLooseXml,
+                            registrationFile);
+
+
+                // =========================================================
+                // Install the custom ERA FIRST.
                 //
-                // This backup is separate from root.era because root.era
-                // remains completely untouched.
+                // We only update ScenarioDescriptions after the archive
+                // itself has been successfully installed and verified.
+                // =========================================================
+
+                string installedEraPath =
+                    Path.Combine(
+                        gameDirectory,
+                        _currentArchive.FileName);
+
+
+                if (!string.Equals(
+                        _currentArchive.FilePath,
+                        installedEraPath,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    string tempEraPath =
+                        installedEraPath +
+                        ".ensemble.tmp";
+
+
+                    try
+                    {
+                        File.Copy(
+                            _currentArchive.FilePath,
+                            tempEraPath,
+                            overwrite: true);
+
+
+                        // -------------------------------------------------
+                        // Prove the installed copy is a valid ERA.
+                        // -------------------------------------------------
+
+                        EraArchiveInfo verificationArchive =
+                            EraArchiveService.Open(
+                                tempEraPath);
+
+
+                        string expectedInternalScenario =
+                            "scenario\\" +
+                            registrationFile +
+                            ".xmb";
+
+
+                        string normalizedExpected =
+                            expectedInternalScenario
+                                .Replace(
+                                    '/',
+                                    '\\');
+
+
+                        bool containsScenario =
+                            verificationArchive
+                                .Chunks
+                                .Any(
+                                    chunk =>
+                                        string.Equals(
+                                            chunk.FileName
+                                                .Replace(
+                                                    '/',
+                                                    '\\'),
+                                            normalizedExpected,
+                                            StringComparison.OrdinalIgnoreCase));
+
+
+                        if (!containsScenario)
+                        {
+                            throw new InvalidDataException(
+                                "Custom ERA verification failed.\n\n" +
+
+                                "The installed archive does not contain:\n\n" +
+
+                                expectedInternalScenario);
+                        }
+
+
+                        if (File.Exists(
+                                installedEraPath))
+                        {
+                            CreateSaveBackupIfNeeded(
+                                installedEraPath);
+                        }
+
+
+                        File.Copy(
+                            tempEraPath,
+                            installedEraPath,
+                            overwrite: true);
+                    }
+                    finally
+                    {
+                        if (File.Exists(
+                                tempEraPath))
+                        {
+                            File.Delete(
+                                tempEraPath);
+                        }
+                    }
+                }
+                else
+                {
+                    // -----------------------------------------------------
+                    // ERA already lives in the game directory.
+                    // Still verify the internal alias before registration.
+                    // -----------------------------------------------------
+
+                    EraArchiveInfo verificationArchive =
+                        EraArchiveService.Open(
+                            installedEraPath);
+
+
+                    string expectedInternalScenario =
+                        "scenario\\" +
+                        registrationFile +
+                        ".xmb";
+
+
+                    bool containsScenario =
+                        verificationArchive
+                            .Chunks
+                            .Any(
+                                chunk =>
+                                    string.Equals(
+                                        chunk.FileName
+                                            .Replace(
+                                                '/',
+                                                '\\'),
+                                        expectedInternalScenario,
+                                        StringComparison.OrdinalIgnoreCase));
+
+
+                    if (!containsScenario)
+                    {
+                        throw new InvalidDataException(
+                            "Custom ERA verification failed.\n\n" +
+
+                            "The archive does not contain:\n\n" +
+
+                            expectedInternalScenario);
+                    }
+                }
+
+
+                // =========================================================
+                // Preserve pre-Ensemble loose registry once.
                 // =========================================================
 
                 string looseBackupPath =
@@ -4658,114 +4554,114 @@ namespace Ensemble
                 }
 
 
-                string tempPath =
+                // =========================================================
+                // Write ScenarioDescriptions LAST.
+                // =========================================================
+
+                string tempLoosePath =
                     loosePath +
                     ".ensemble.tmp";
 
 
                 try
                 {
-                    // UTF-8 without BOM.
-                    //
-                    // The XML declaration generated by Ensemble does not
-                    // require an explicit encoding field.
                     File.WriteAllText(
-                        tempPath,
-                        xml,
+                        tempLoosePath,
+
+                        registration.Xml,
+
                         new System.Text.UTF8Encoding(
                             encoderShouldEmitUTF8Identifier: false));
 
 
-                    // =====================================================
-                    // Re-read the actual disk file before installing it.
-                    // =====================================================
-
                     string verificationXml =
                         File.ReadAllText(
-                            tempPath,
-                            new System.Text.UTF8Encoding(
-                                encoderShouldEmitUTF8Identifier: false));
+                            tempLoosePath);
 
 
-                    System.Xml.Linq.XDocument
-                        verificationDocument =
-                            System.Xml.Linq.XDocument.Parse(
-                                verificationXml);
-
-
-                    int verificationCount =
-                        verificationDocument
-                            .Descendants()
-                            .Count(
-                                x =>
-                                    string.Equals(
-                                        x.Name.LocalName,
-                                        "ScenarioInfo",
-                                        StringComparison.Ordinal));
-
-
-                    if (verificationCount !=
-                        scenarioCount)
+                    if (!ScenarioDescriptionsService
+                            .ContainsScenarioFile(
+                                verificationXml,
+                                registrationFile))
                     {
                         throw new InvalidDataException(
                             "Loose ScenarioDescriptions verification failed.\n\n" +
 
-                            $"Original entries: {scenarioCount}\n" +
-                            $"Written entries:  {verificationCount}");
+                            "The custom map entry could not be found " +
+                            "after writing the file.");
                     }
 
 
                     File.Copy(
-                        tempPath,
+                        tempLoosePath,
                         loosePath,
                         overwrite: true);
                 }
                 finally
                 {
                     if (File.Exists(
-                            tempPath))
+                            tempLoosePath))
                     {
                         File.Delete(
-                            tempPath);
+                            tempLoosePath);
                     }
                 }
 
 
-                // =========================================================
-                // Give the loose file an unmistakably fresh timestamp.
-                //
-                // Halo Wars compares the XML and XMB timestamps.
-                // =========================================================
-
+                // Make sure loose XML remains newer than archived XMB.
                 File.SetLastWriteTimeUtc(
                     loosePath,
                     DateTime.UtcNow);
 
 
+                // =========================================================
+                // Success.
+                // =========================================================
+
+                string registryAction =
+                    registration.Added
+                        ? "Added new map entry"
+                        : "Map entry already existed";
+
+
+                string duplicateText =
+                    registration.RemovedDuplicateCount >
+                        0
+                        ? $"\nRemoved duplicate entries: " +
+                          $"{registration.RemovedDuplicateCount}\n"
+                        : string.Empty;
+
+
                 StatusText.Text =
-                    "Loose ScenarioDescriptions test file installed.";
+                    $"Installed custom map: {eraBasename}.";
 
 
                 MessageBox.Show(
                     this,
 
-                    "Loose-file ScenarioDescriptions test installed successfully.\n\n" +
+                    "Custom map installed successfully.\n\n" +
 
-                    $"Scenario entries: {scenarioCount}\n\n" +
+                    $"{registryAction}\n" +
 
-                    $"Loose XML:\n" +
+                    $"Scenario entries: {registration.ScenarioCount}\n" +
+
+                    duplicateText +
+
+                    $"\nInstalled ERA:\n" +
+                    $"{installedEraPath}\n\n" +
+
+                    $"Scenario:\n" +
+                    $"{registration.TargetScenarioFile}\n\n" +
+
+                    $"Template:\n" +
+                    $"{registration.TemplateScenarioFile}\n\n" +
+
+                    $"Loose registry:\n" +
                     $"{loosePath}\n\n" +
 
-                    "root.era was READ ONLY and was not modified.\n\n" +
+                    "root.era was READ ONLY and was not modified.",
 
-                    "Now launch Halo Wars normally using the " +
-                    "Ensemble-patched xgameFinal.exe.\n\n" +
-
-                    "For this first test the map list should look exactly " +
-                    "like stock Halo Wars. We are only proving that the game " +
-                    "can boot and use a loose ScenarioDescriptions file.",
-
-                    "Loose File Test Ready",
+                    "Custom Map Installed",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -4776,432 +4672,14 @@ namespace Ensemble
                     this,
                     ex.ToString(),
 
-                    "Loose ScenarioDescriptions Test Failed",
+                    "Custom Map Installation Failed",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
 
                 StatusText.Text =
-                    "Loose ScenarioDescriptions test failed.";
-            }
-        }
-
-        private void TestDuplicateBloodGulch_Click(
-            object sender,
-            RoutedEventArgs e)
-        {
-            OpenFileDialog dialog =
-                new OpenFileDialog
-                {
-                    Title =
-                        "Select Halo Wars Definitive Edition Executable",
-
-                    FileName =
-                        "xgameFinal.exe",
-
-                    Filter =
-                        "Halo Wars Executable (xgameFinal.exe)|xgameFinal.exe|" +
-                        "Executable Files (*.exe)|*.exe|" +
-                        "All Files (*.*)|*.*",
-
-                    CheckFileExists =
-                        true,
-
-                    Multiselect =
-                        false
-                };
-
-
-            if (dialog.ShowDialog(
-                    this) !=
-                true)
-            {
-                return;
-            }
-
-
-            try
-            {
-                string exePath =
-                    dialog.FileName;
-
-
-                string gameDirectory =
-                    Path.GetDirectoryName(
-                        exePath)
-                    ?? throw new InvalidDataException(
-                        "Unable to determine the Halo Wars game directory.");
-
-
-                string rootPath =
-                    Path.Combine(
-                        gameDirectory,
-                        "root.era");
-
-
-                if (!File.Exists(
-                        rootPath))
-                {
-                    throw new FileNotFoundException(
-                        "root.era was not found beside xgameFinal.exe.",
-                        rootPath);
-                }
-
-
-                // =========================================================
-                // Verify / update the universal Ensemble patch.
-                // =========================================================
-
-                StatusText.Text =
-                    "Checking Ensemble EXE patches...";
-
-
-                HaloWarsExePatchResult patchResult =
-                    HaloWarsExePatchService.Patch(
-                        exePath);
-
-
-                if (!patchResult.EraSignatureBypassEnabled ||
-                    !patchResult.LooseFilesEnabled)
-                {
-                    throw new InvalidDataException(
-                        "The Halo Wars executable does not contain " +
-                        "all required Ensemble patches.");
-                }
-
-
-                // =========================================================
-                // Read ScenarioDescriptions from STOCK root.era.
-                // root.era remains completely untouched.
-                // =========================================================
-
-                StatusText.Text =
-                    "Reading stock ScenarioDescriptions...";
-
-
-                EraArchiveInfo rootArchive =
-                    EraArchiveService.Open(
-                        rootPath);
-
-
-                EraChunkInfo descriptionsChunk =
-                    ScenarioDescriptionsService
-                        .FindScenarioDescriptionsChunk(
-                            rootArchive);
-
-
-                byte[] descriptionsXmb =
-                    EraExtractionService.ExtractChunk(
-                        rootArchive,
-                        descriptionsChunk);
-
-
-                string xml =
-                    XmbDocumentService.Read(
-                        descriptionsXmb);
-
-
-                System.Xml.Linq.XDocument document =
-                    System.Xml.Linq.XDocument.Parse(
-                        xml);
-
-
-                // =========================================================
-                // Find stock Blood Gulch.
-                // =========================================================
-
-                const string bloodGulchFile =
-                    "skirmish\\design\\blood_gulch\\blood_gulch.scn";
-
-
-                System.Xml.Linq.XElement? bloodGulch =
-                    document
-                        .Descendants()
-                        .FirstOrDefault(
-                            x =>
-                            {
-                                if (!string.Equals(
-                                        x.Name.LocalName,
-                                        "ScenarioInfo",
-                                        StringComparison.Ordinal))
-                                {
-                                    return false;
-                                }
-
-
-                                string? file =
-                                    x.Attribute(
-                                        "File")
-                                    ?.Value;
-
-
-                                if (file ==
-                                    null)
-                                {
-                                    return false;
-                                }
-
-
-                                file =
-                                    file
-                                        .Replace(
-                                            '/',
-                                            '\\')
-                                        .Trim();
-
-
-                                return string.Equals(
-                                    file,
-                                    bloodGulchFile,
-                                    StringComparison.OrdinalIgnoreCase);
-                            });
-
-
-                if (bloodGulch ==
-                    null)
-                {
-                    throw new InvalidDataException(
-                        "Unable to locate the stock Blood Gulch " +
-                        "ScenarioInfo entry.");
-                }
-
-
-                // =========================================================
-                // Clone the complete entry.
-                //
-                // SAME:
-                // NameStringID
-                // InfoStringID
-                // MaxPlayers
-                // Type
-                // File
-                // LoadingScreen
-                // MapName
-                //
-                // This deliberately gives us two identical Blood Gulches.
-                // =========================================================
-
-                System.Xml.Linq.XElement duplicate =
-                    new System.Xml.Linq.XElement(
-                        bloodGulch);
-
-
-                bloodGulch.AddAfterSelf(
-                    duplicate);
-
-
-                int stockEntryCount =
-                    document
-                        .Descendants()
-                        .Count(
-                            x =>
-                                string.Equals(
-                                    x.Name.LocalName,
-                                    "ScenarioInfo",
-                                    StringComparison.Ordinal));
-
-
-                // Should now be 81 based on the current stock file.
-                if (stockEntryCount <
-                    2)
-                {
-                    throw new InvalidDataException(
-                        "ScenarioDescriptions duplication failed.");
-                }
-
-
-                // =========================================================
-                // Write loose ScenarioDescriptions.
-                // =========================================================
-
-                string dataDirectory =
-                    Path.Combine(
-                        gameDirectory,
-                        "data");
-
-
-                Directory.CreateDirectory(
-                    dataDirectory);
-
-
-                string loosePath =
-                    Path.Combine(
-                        dataDirectory,
-                        "scenariodescriptions.xml");
-
-
-                string backupPath =
-                    Path.Combine(
-                        dataDirectory,
-                        "scenariodescriptions.pre_ensemble_backup.xml");
-
-
-                // Preserve the working stock loose XML from our last test.
-                if (File.Exists(
-                        loosePath) &&
-                    !File.Exists(
-                        backupPath))
-                {
-                    File.Copy(
-                        loosePath,
-                        backupPath,
-                        overwrite: false);
-                }
-
-
-                string tempPath =
-                    loosePath +
-                    ".ensemble.tmp";
-
-
-                try
-                {
-                    System.Xml.XmlWriterSettings settings =
-                        new System.Xml.XmlWriterSettings
-                        {
-                            Indent =
-                                true,
-
-                            Encoding =
-                                new System.Text.UTF8Encoding(
-                                    encoderShouldEmitUTF8Identifier: false),
-
-                            NewLineChars =
-                                Environment.NewLine,
-
-                            NewLineHandling =
-                                System.Xml.NewLineHandling.Replace
-                        };
-
-
-                    using (System.Xml.XmlWriter writer =
-                           System.Xml.XmlWriter.Create(
-                               tempPath,
-                               settings))
-                    {
-                        document.Save(
-                            writer);
-                    }
-
-
-                    // Reopen what we actually wrote.
-                    System.Xml.Linq.XDocument verification =
-                        System.Xml.Linq.XDocument.Load(
-                            tempPath);
-
-
-                    int bloodGulchCount =
-                        verification
-                            .Descendants()
-                            .Count(
-                                x =>
-                                {
-                                    if (!string.Equals(
-                                            x.Name.LocalName,
-                                            "ScenarioInfo",
-                                            StringComparison.Ordinal))
-                                    {
-                                        return false;
-                                    }
-
-
-                                    string? file =
-                                        x.Attribute(
-                                            "File")
-                                        ?.Value;
-
-
-                                    if (file ==
-                                        null)
-                                    {
-                                        return false;
-                                    }
-
-
-                                    return string.Equals(
-                                        file
-                                            .Replace(
-                                                '/',
-                                                '\\')
-                                            .Trim(),
-                                        bloodGulchFile,
-                                        StringComparison.OrdinalIgnoreCase);
-                                });
-
-
-                    if (bloodGulchCount !=
-                        2)
-                    {
-                        throw new InvalidDataException(
-                            "Loose XML verification failed.\n\n" +
-                            $"Blood Gulch entries found: {bloodGulchCount}");
-                    }
-
-
-                    File.Copy(
-                        tempPath,
-                        loosePath,
-                        overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(
-                            tempPath))
-                    {
-                        File.Delete(
-                            tempPath);
-                    }
-                }
-
-
-                // Make it unquestionably newer than archived data.
-                File.SetLastWriteTimeUtc(
-                    loosePath,
-                    DateTime.UtcNow);
-
-
-                StatusText.Text =
-                    "Duplicate Blood Gulch loose-file test installed.";
-
-
-                MessageBox.Show(
-                    this,
-
-                    "Loose ScenarioDescriptions proof test is ready.\n\n" +
-
-                    $"Scenario entries: {stockEntryCount}\n" +
-
-                    "Blood Gulch entries: 2\n\n" +
-
-                    $"Loose XML:\n{loosePath}\n\n" +
-
-                    "root.era was NOT modified.\n\n" +
-
-                    "Launch Halo Wars and open the 1v1 skirmish map list.\n\n" +
-
-                    "PASS CONDITION:\n" +
-                    "Two Blood Gulch entries appear.",
-
-                    "Duplicate Blood Gulch Test Ready",
-
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    this,
-                    ex.ToString(),
-
-                    "Duplicate Blood Gulch Test Failed",
-
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-
-
-                StatusText.Text =
-                    "Duplicate Blood Gulch test failed.";
+                    "Custom map installation failed.";
             }
         }
 
