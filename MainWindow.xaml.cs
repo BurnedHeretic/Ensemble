@@ -3886,7 +3886,7 @@ namespace Ensemble
 
                         $"Scenario:\n{scenarioBasename}\n\n" +
 
-                        "Use 'Create custom scenario files...' first.",
+                        "Use 'Save As...' to create a custom map first.",
 
                         "Custom Map Naming Mismatch",
 
@@ -4010,6 +4010,13 @@ namespace Ensemble
                         rootArchive,
                         descriptionsChunk);
 
+                // =========================================================
+                // Read the game's stock localization table.
+                //
+                // Halo Wars resolves ScenarioInfo NameStringID through
+                // data\stringtable.xml, which lives in the locale archive.
+                // =========================================================
+
 
                 // =========================================================
                 // Locate loose ScenarioDescriptions.
@@ -4027,6 +4034,114 @@ namespace Ensemble
 
                 Directory.CreateDirectory(
                     dataDirectory);
+
+                // =========================================================
+                // HALO WARS DE LOCALIZATION
+                //
+                // DE packages one StringTable per language:
+                //
+                // stringtable-en.xml.xmb
+                // stringtable-de.xml.xmb
+                // stringtable-fr.xml.xmb
+                // etc.
+                //
+                // Give every language table the SAME custom localization ID.
+                // This means custom map names work regardless of the user's
+                // selected Halo Wars language.
+                // =========================================================
+
+                StatusText.Text =
+                    "Preparing custom map localization...";
+
+
+                List<LocalizedStringTableSource>
+                    stringTableSources =
+                        StringTableService
+                            .FindLocalizedStringTables(
+                                rootArchive);
+
+
+                Dictionary<string, byte[]>
+                    stockStringTables =
+                        new(
+                            StringComparer.OrdinalIgnoreCase);
+
+
+                Dictionary<string, string?>
+                    existingLooseStringTables =
+                        new(
+                            StringComparer.OrdinalIgnoreCase);
+
+
+                foreach (LocalizedStringTableSource source
+                         in stringTableSources)
+                {
+                    byte[] stockXmb =
+                        EraExtractionService.ExtractChunk(
+                            rootArchive,
+                            source.Chunk);
+
+
+                    stockStringTables[
+                        source.LanguageCode] =
+                            stockXmb;
+
+
+                    string looseTablePath =
+                        Path.Combine(
+                            dataDirectory,
+                            source.LooseFileName);
+
+
+                    existingLooseStringTables[
+                        source.LanguageCode] =
+                            File.Exists(
+                                looseTablePath)
+                                ? File.ReadAllText(
+                                    looseTablePath)
+                                : null;
+                }
+
+
+                string displayName =
+                    BuildDefaultMapDisplayName(
+                        eraBasename);
+
+
+                long customNameStringId =
+                    StringTableService
+                        .FindFreeCustomStringId(
+                            stockStringTables.Values,
+                            existingLooseStringTables.Values);
+
+
+                Dictionary<string, string>
+                    generatedStringTables =
+                        new(
+                            StringComparer.OrdinalIgnoreCase);
+
+
+                foreach (LocalizedStringTableSource source
+                         in stringTableSources)
+                {
+                    generatedStringTables[
+                        source.LanguageCode] =
+                            StringTableService
+                                .BuildOrUpdateLooseStringTable(
+                                    stockStringTables[
+                                        source.LanguageCode],
+
+                                    existingLooseStringTables[
+                                        source.LanguageCode],
+
+                                    customNameStringId,
+                                    displayName);
+                }
+
+                string looseStringTablePath =
+                    Path.Combine(
+                        dataDirectory,
+                        "stringtable.xml");
 
 
                 string loosePath =
@@ -4049,10 +4164,11 @@ namespace Ensemble
 
                 LooseScenarioRegistrationResult registration =
                     ScenarioDescriptionsService
-                        .BuildOrUpdateLooseScenarioDescriptions(
-                            stockDescriptionsXmb,
-                            existingLooseXml,
-                            registrationFile);
+                    .BuildOrUpdateLooseScenarioDescriptions(
+                        stockDescriptionsXmb,
+                        existingLooseXml,
+                        registrationFile,
+                        customNameStringId);
 
 
                 // =========================================================
@@ -4199,6 +4315,108 @@ namespace Ensemble
                     }
                 }
 
+                // =========================================================
+                // INSTALL ALL LANGUAGE-SPECIFIC LOOSE STRING TABLES
+                // =========================================================
+
+                StatusText.Text =
+                    "Installing custom map localization...";
+
+
+                foreach (LocalizedStringTableSource source
+                         in stringTableSources)
+                {
+                    string looseTablePath =
+                        Path.Combine(
+                            dataDirectory,
+                            source.LooseFileName);
+
+
+                    string backupTablePath =
+                        Path.Combine(
+                            dataDirectory,
+
+                            Path.GetFileNameWithoutExtension(
+                                source.LooseFileName)
+
+                            + ".pre_ensemble_backup.xml");
+
+
+                    // Preserve any pre-existing loose override once.
+                    if (File.Exists(
+                            looseTablePath) &&
+                        !File.Exists(
+                            backupTablePath))
+                    {
+                        File.Copy(
+                            looseTablePath,
+                            backupTablePath,
+                            overwrite: false);
+                    }
+
+
+                    string tempTablePath =
+                        looseTablePath +
+                        ".ensemble.tmp";
+
+
+                    try
+                    {
+                        string generatedXml =
+                            generatedStringTables[
+                                source.LanguageCode];
+
+
+                        File.WriteAllText(
+                            tempTablePath,
+
+                            generatedXml,
+
+                            new System.Text.UTF8Encoding(
+                                encoderShouldEmitUTF8Identifier: false));
+
+
+                        string verificationXml =
+                            File.ReadAllText(
+                                tempTablePath);
+
+
+                        if (!StringTableService
+                                .ContainsString(
+                                    verificationXml,
+                                    customNameStringId,
+                                    displayName))
+                        {
+                            throw new InvalidDataException(
+                                "Loose StringTable verification failed.\n\n" +
+                                $"Language: {source.LanguageCode}\n" +
+                                $"Map name: {displayName}\n" +
+                                $"Localization ID: {customNameStringId}");
+                        }
+
+
+                        File.Copy(
+                            tempTablePath,
+                            looseTablePath,
+                            overwrite: true);
+                    }
+                    finally
+                    {
+                        if (File.Exists(
+                                tempTablePath))
+                        {
+                            File.Delete(
+                                tempTablePath);
+                        }
+                    }
+
+
+                    // Loose XML must beat the archived XMB timestamp.
+                    File.SetLastWriteTimeUtc(
+                        looseTablePath,
+                        DateTime.UtcNow);
+                }
+
 
                 // =========================================================
                 // Preserve pre-Ensemble loose registry once.
@@ -4324,12 +4542,18 @@ namespace Ensemble
                     $"Template:\n" +
                     $"{registration.TemplateScenarioFile}\n\n" +
 
-                    $"Loose registry:\n" +
-                    $"{loosePath}\n\n" +
+                    $"Display name:\n" +
+                    $"{displayName}\n\n" +
+                    
+                    $"Localization ID:\n" +
+                    $"{customNameStringId}\n\n" +
+                    
+                    $"Localized tables installed:\n" +
+                    $"{stringTableSources.Count}\n\n" +
 
-                    "root.era was READ ONLY and was not modified.",
+                    "",
 
-                    "Custom Map Installed",
+                    "",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -4379,6 +4603,36 @@ namespace Ensemble
 
 
             return true;
+        }
+
+        private static string BuildDefaultMapDisplayName(
+            string eraBasename)
+        {
+            string value =
+                eraBasename
+                    .Replace(
+                        "_",
+                        " ")
+                    .Replace(
+                        "-",
+                        " - ");
+
+
+            while (value.Contains(
+                "  ",
+                StringComparison.Ordinal))
+            {
+                value =
+                    value.Replace(
+                        "  ",
+                        " ",
+                        StringComparison.Ordinal);
+            }
+
+
+            return value
+                .Trim()
+                .ToUpperInvariant();
         }
 
         private static void AddScenarioCompanionRename(

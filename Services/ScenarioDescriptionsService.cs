@@ -359,7 +359,8 @@ namespace Ensemble.Services
     BuildOrUpdateLooseScenarioDescriptions(
         byte[] stockScenarioDescriptionsXmb,
         string? existingLooseXml,
-        string targetScenarioFile)
+        string targetScenarioFile,
+        long customNameStringId)
         {
             if (stockScenarioDescriptionsXmb ==
                 null)
@@ -493,6 +494,11 @@ namespace Ensemble.Services
 
             customFile.Value =
                 target;
+
+            customEntry.SetAttributeValue(
+                "NameStringID",
+                customNameStringId.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
 
 
             // =========================================================
