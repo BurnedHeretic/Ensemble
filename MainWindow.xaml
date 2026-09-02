@@ -230,12 +230,6 @@
                 <MenuItem Header="Patch Halo Wars EXE..."
               Click="PatchHaloWarsExe_Click"/>
 
-                
-
-                <MenuItem x:Name="CreateCustomMapCopyMenuItem"
-                          Header="Create custom scenario files..."
-                          Click="CreateCustomMapCopy_Click"
-                          IsEnabled="False"/>
 
                 <MenuItem x:Name="RegisterCustomMapMenuItem"
                           Header="Export Map to Halo Wars..."

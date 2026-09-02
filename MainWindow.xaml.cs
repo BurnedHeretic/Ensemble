@@ -437,9 +437,6 @@ namespace Ensemble
             AddObjectMenuItem.IsEnabled =
                 false;
 
-            CreateCustomMapCopyMenuItem.IsEnabled =
-                false;
-
             RegisterCustomMapMenuItem.IsEnabled =
                 false;
 
@@ -1305,9 +1302,6 @@ namespace Ensemble
                         true;
 
                     AddObjectMenuItem.IsEnabled =
-                        true;
-
-                    CreateCustomMapCopyMenuItem.IsEnabled =
                         true;
 
                     RegisterCustomMapMenuItem.IsEnabled =
@@ -3802,332 +3796,6 @@ namespace Ensemble
             }
         }
 
-        private void CreateCustomMapCopy_Click(
-            object sender,
-            RoutedEventArgs e)
-        {
-            if (_currentArchive ==
-                    null ||
-                _currentScenarioChunk ==
-                    null)
-            {
-                return;
-            }
-
-
-            // Make sure the custom copy includes
-            // every current edit first.
-            if (_isDirty)
-            {
-                MessageBoxResult saveResult =
-                    MessageBox.Show(
-                        this,
-                        "The current map has unsaved changes.\n\n" +
-                        "Save them before creating the custom map copy?",
-                        "Create Custom Map",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Question);
-
-
-                if (saveResult !=
-                    MessageBoxResult.Yes)
-                {
-                    return;
-                }
-
-
-                if (!SaveCurrentDocument())
-                {
-                    return;
-                }
-            }
-
-
-            string sourceScenarioPath =
-                _currentScenarioChunk
-                    .FileName
-                    .Replace(
-                        '/',
-                        '\\');
-
-
-            const string scnSuffix =
-                ".scn.xmb";
-
-
-            if (!sourceScenarioPath.EndsWith(
-                    scnSuffix,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                MessageBox.Show(
-                    this,
-                    "The current scenario filename does not " +
-                    "end in .scn.xmb.",
-                    "Create Custom Map",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-
-                return;
-            }
-
-
-            int slash =
-                sourceScenarioPath
-                    .LastIndexOf(
-                        '\\');
-
-
-            string directory =
-                slash >=
-                    0
-                    ? sourceScenarioPath[
-                        ..(slash + 1)]
-                    : string.Empty;
-
-
-            string leaf =
-                slash >=
-                    0
-                    ? sourceScenarioPath[
-                        (slash + 1)..]
-                    : sourceScenarioPath;
-
-
-            string oldBasename =
-                leaf[
-                    ..^scnSuffix.Length];
-
-
-            SaveFileDialog dialog =
-                new SaveFileDialog
-                {
-                    Title =
-                        "Create Custom Halo Wars Map",
-
-                    FileName =
-                        oldBasename +
-                        "_ensemble.era",
-
-                    Filter =
-                        "Halo Wars ERA (*.era)|*.era",
-
-                    AddExtension =
-                        true,
-
-                    DefaultExt =
-                        ".era"
-                };
-
-
-            if (dialog.ShowDialog(
-                    this) !=
-                true)
-            {
-                return;
-            }
-
-
-            string newBasename =
-                Path.GetFileNameWithoutExtension(
-                    dialog.FileName)
-                .Trim();
-
-
-            if (!IsSafeScenarioBasename(
-                    newBasename))
-            {
-                MessageBox.Show(
-                    this,
-                    "Use only letters, numbers, underscores " +
-                    "and hyphens for the custom map name.",
-                    "Invalid Map Name",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-
-                return;
-            }
-
-
-            if (string.Equals(
-                    oldBasename,
-                    newBasename,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                MessageBox.Show(
-                    this,
-                    "The custom map needs a different basename " +
-                    "from the source map.",
-                    "Invalid Map Name",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-
-                return;
-            }
-
-
-            try
-            {
-                Dictionary<int, string>
-                    renames =
-                        new();
-
-
-                AddScenarioCompanionRename(
-                    _currentArchive,
-                    renames,
-                    directory,
-                    oldBasename,
-                    newBasename,
-                    ".scn.xmb",
-                    required: true);
-
-
-                AddScenarioCompanionRename(
-                    _currentArchive,
-                    renames,
-                    directory,
-                    oldBasename,
-                    newBasename,
-                    ".sc2.xmb",
-                    required: false);
-
-
-                AddScenarioCompanionRename(
-                    _currentArchive,
-                    renames,
-                    directory,
-                    oldBasename,
-                    newBasename,
-                    ".sc3.xmb",
-                    required: false);
-
-
-                // ---------------------------------------------------------
-                // Scenario-derived runtime companions.
-                //
-                // Halo Wars derives these names from the selected scenario
-                // basename rather than solely from references inside SCN.
-                // ---------------------------------------------------------
-
-                AddScenarioCompanionRename(
-                    _currentArchive,
-                    renames,
-                    directory,
-                    oldBasename,
-                    newBasename,
-                    ".xsd",
-                    required: true);
-
-
-                AddScenarioCompanionRename(
-                    _currentArchive,
-                    renames,
-                    directory,
-                    oldBasename,
-                    newBasename,
-                    ".lrp",
-                    required: false);
-
-
-                StatusText.Text =
-                    "Creating custom scenario ERA...";
-
-
-                byte[] result =
-                    EraRebuildService
-                        .BuildRenamedEra(
-                            _currentArchive,
-                            renames);
-
-
-                string tempPath =
-                    dialog.FileName +
-                    ".ensemble.tmp";
-
-
-                try
-                {
-                    File.WriteAllBytes(
-                        tempPath,
-                        result);
-
-
-                    EraArchiveInfo verification =
-                        EraArchiveService.Open(
-                            tempPath);
-
-
-                    // =========================================================
-                    // Verify every filename alias that we requested.
-                    // =========================================================
-
-                    foreach (string expectedFile
-                             in renames.Values)
-                    {
-                        bool found =
-                            verification.Chunks.Any(
-                                x =>
-                                    string.Equals(
-                                        x.FileName,
-                                        expectedFile,
-                                        StringComparison.OrdinalIgnoreCase));
-
-                        if (!found)
-                        {
-                            throw new InvalidDataException(
-                                "Custom ERA verification failed.\n\n" +
-                                "The rebuilt archive is missing:\n\n" +
-                                expectedFile);
-                        }
-                    }
-
-
-                    File.Copy(
-                        tempPath,
-                        dialog.FileName,
-                        overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(
-                            tempPath))
-                    {
-                        File.Delete(
-                            tempPath);
-                    }
-                }
-
-
-                StatusText.Text =
-                    $"Created custom ERA: {newBasename}.era";
-
-
-                MessageBox.Show(
-                    this,
-                    "Custom map archive created successfully.\n\n" +
-                    $"Archive: {Path.GetFileName(dialog.FileName)}\n" +
-                    $"Scenario: {newBasename}.scn\n" +
-                    $"Aliased files: {renames.Count}\n\n" +
-                    "Open the new ERA in Ensemble, then use " +
-                    "'Register Current Custom Map...' to install it.",
-                    "Custom ERA Created",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    this,
-                    ex.ToString(),
-                    "Unable to Create Custom Map",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-
-                StatusText.Text =
-                    "Custom map creation failed.";
-            }
-        }
-
         private void RegisterCustomMap_Click(
             object sender,
             RoutedEventArgs e)
@@ -4760,6 +4428,132 @@ namespace Ensemble
                     suffix;
         }
 
+        private static Dictionary<int, string>
+            BuildScenarioCompanionRenames(
+        EraArchiveInfo archive,
+        EraChunkInfo scenarioChunk,
+        string newBasename)
+        {
+            string sourceScenarioPath =
+                scenarioChunk
+                    .FileName
+                    .Replace(
+                        '/',
+                        '\\');
+
+
+            const string scnSuffix =
+                ".scn.xmb";
+
+
+            if (!sourceScenarioPath.EndsWith(
+                    scnSuffix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The current scenario filename does not " +
+                    "end in .scn.xmb.");
+            }
+
+
+            int slash =
+                sourceScenarioPath
+                    .LastIndexOf(
+                        '\\');
+
+
+            string directory =
+                slash >= 0
+                    ? sourceScenarioPath[
+                        ..(slash + 1)]
+                    : string.Empty;
+
+
+            string leaf =
+                slash >= 0
+                    ? sourceScenarioPath[
+                        (slash + 1)..]
+                    : sourceScenarioPath;
+
+
+            string oldBasename =
+                leaf[
+                    ..^scnSuffix.Length];
+
+
+            Dictionary<int, string> renames =
+                new();
+
+
+            // Saving under the same basename requires no
+            // internal filename changes.
+            if (string.Equals(
+                    oldBasename,
+                    newBasename,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return renames;
+            }
+
+
+            // Main scenario - mandatory.
+            AddScenarioCompanionRename(
+                archive,
+                renames,
+                directory,
+                oldBasename,
+                newBasename,
+                ".scn.xmb",
+                required: true);
+
+
+            // Optional scenario companion data.
+            AddScenarioCompanionRename(
+                archive,
+                renames,
+                directory,
+                oldBasename,
+                newBasename,
+                ".sc2.xmb",
+                required: false);
+
+
+            AddScenarioCompanionRename(
+                archive,
+                renames,
+                directory,
+                oldBasename,
+                newBasename,
+                ".sc3.xmb",
+                required: false);
+
+
+            // Halo Wars derives this directly from the
+            // scenario basename, so it must match.
+            AddScenarioCompanionRename(
+                archive,
+                renames,
+                directory,
+                oldBasename,
+                newBasename,
+                ".xsd",
+                required: true);
+
+
+            // Present on some scenarios/maps.
+            AddScenarioCompanionRename(
+                archive,
+                renames,
+                directory,
+                oldBasename,
+                newBasename,
+                ".lrp",
+                required: false);
+
+
+            return renames;
+        }
+
         // =========================================================
         // Terrain
         // ========================================================
@@ -5128,7 +4922,8 @@ namespace Ensemble
 
             return SaveModifiedEraToPath(
                 _currentSavePath,
-                showSuccessDialog: false);
+                showSuccessDialog: false,
+                renameScenarioCompanions: false);
         }
 
         private void SaveAs_Click(
@@ -5203,12 +4998,14 @@ namespace Ensemble
 
             return SaveModifiedEraToPath(
                 targetPath,
-                showSuccessDialog: true);
+                showSuccessDialog: true,
+                renameScenarioCompanions: true);
         }
 
         private bool SaveModifiedEraToPath(
             string targetPath,
-            bool showSuccessDialog)
+            bool showSuccessDialog,
+            bool renameScenarioCompanions)
         {
             if (_currentArchive == null ||
                 _currentScenarioChunk == null ||
@@ -5361,11 +5158,40 @@ namespace Ensemble
                             modifiedXsd;
                 }
 
+                Dictionary<int, string> fileRenames = new();
+
+
+                if (renameScenarioCompanions)
+                {
+                    string targetBasename =
+                        Path.GetFileNameWithoutExtension(
+                            targetPath)
+                        .Trim();
+
+
+                    if (!IsSafeScenarioBasename(
+                            targetBasename))
+                    {
+                        throw new InvalidDataException(
+                            "The ERA filename cannot be used as a Halo Wars " +
+                            "scenario basename.\n\n" +
+                            "Use only letters, numbers, underscores and hyphens.");
+                    }
+
+
+                    fileRenames =
+                        BuildScenarioCompanionRenames(
+                            _currentArchive,
+                            _currentScenarioChunk,
+                            targetBasename);
+                }
+
 
                 byte[] modifiedEra =
                     EraRebuildService.BuildModifiedEra(
                         _currentArchive,
-                        replacements);
+                        replacements,
+                        fileRenames);
 
                 // -----------------------------------------------------
                 // Write to TEMP first.
