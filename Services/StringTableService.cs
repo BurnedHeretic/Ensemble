@@ -124,16 +124,41 @@ namespace Ensemble.Services
         // =========================================================
 
         public static long FindFreeCustomStringId(
-            IEnumerable<byte[]> stockStringTableXmbs,
-            IEnumerable<string?> existingLooseXmls)
+    IEnumerable<byte[]> stockStringTableXmbs,
+    IEnumerable<string?> existingLooseXmls,
+    IEnumerable<long>? reservedIds = null)
         {
+            if (stockStringTableXmbs == null)
+            {
+                throw new ArgumentNullException(
+                    nameof(stockStringTableXmbs));
+            }
+
+
+            if (existingLooseXmls == null)
+            {
+                throw new ArgumentNullException(
+                    nameof(existingLooseXmls));
+            }
+
+
             HashSet<long> usedIds =
                 new();
 
 
+            // =========================================================
+            // Collect every retail StringTable ID.
+            // =========================================================
+
             foreach (byte[] xmb
                      in stockStringTableXmbs)
             {
+                if (xmb == null)
+                {
+                    continue;
+                }
+
+
                 string xml =
                     XmbDocumentService.Read(
                         xmb);
@@ -149,6 +174,13 @@ namespace Ensemble.Services
                     usedIds);
             }
 
+
+            // =========================================================
+            // Collect every ID already present in Ensemble's loose
+            // StringTables.
+            //
+            // This preserves IDs belonging to previously installed maps.
+            // =========================================================
 
             foreach (string? xml
                      in existingLooseXmls)
@@ -181,6 +213,33 @@ namespace Ensemble.Services
             }
 
 
+            // =========================================================
+            // Reserve IDs allocated earlier in THIS export.
+            //
+            // Example:
+            //
+            // NameStringID = 60002
+            //
+            // When allocating InfoStringID, 60002 must already be
+            // considered occupied even though it has not yet been
+            // written to disk.
+            // =========================================================
+
+            if (reservedIds != null)
+            {
+                foreach (long reservedId
+                         in reservedIds)
+                {
+                    usedIds.Add(
+                        reservedId);
+                }
+            }
+
+
+            // =========================================================
+            // Find first unused Ensemble localization ID.
+            // =========================================================
+
             for (long id = FirstCustomLocId;
                  id < int.MaxValue;
                  id++)
@@ -195,6 +254,12 @@ namespace Ensemble.Services
 
             throw new InvalidDataException(
                 "Unable to allocate a custom localization ID.");
+        }
+
+        public static bool IsCustomStringId(long id)
+        {
+            return id >=
+                FirstCustomLocId;
         }
 
 

@@ -57,6 +57,9 @@ namespace Ensemble
         private byte[]?
             _currentSimulationOriginalXsdData;
 
+        private MapMetadata?
+            _currentMapMetadata;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -402,6 +405,9 @@ namespace Ensemble
                 EraArchiveService.Open(
                     filePath);
 
+            _currentMapMetadata =
+                MapMetadataService.Load(filePath);
+
             ScenarioMapCanvas.CancelObjectPlacement();
 
             ScenarioMapCanvas
@@ -438,6 +444,9 @@ namespace Ensemble
                 false;
 
             RegisterCustomMapMenuItem.IsEnabled =
+                false;
+
+            MapMetadataMenuItem.IsEnabled =
                 false;
 
             _undoStack.Clear();
@@ -1305,6 +1314,9 @@ namespace Ensemble
                         true;
 
                     RegisterCustomMapMenuItem.IsEnabled =
+                        true;
+
+                    MapMetadataMenuItem.IsEnabled =
                         true;
 
                     ScenarioMap map =
@@ -3810,12 +3822,12 @@ namespace Ensemble
 
 
             // =========================================================
-            // Save current edits before installation.
+            // Save current map edits before installation.
             // =========================================================
 
             if (_isDirty)
             {
-                MessageBoxResult result =
+                MessageBoxResult saveResult =
                     MessageBox.Show(
                         this,
 
@@ -3828,7 +3840,7 @@ namespace Ensemble
                         MessageBoxImage.Question);
 
 
-                if (result !=
+                if (saveResult !=
                     MessageBoxResult.Yes)
                 {
                     return;
@@ -3845,7 +3857,7 @@ namespace Ensemble
             try
             {
                 // =========================================================
-                // Determine custom ScenarioDescriptions path.
+                // Determine ScenarioDescriptions registration path.
                 // =========================================================
 
                 string registrationFile =
@@ -3886,7 +3898,7 @@ namespace Ensemble
 
                         $"Scenario:\n{scenarioBasename}\n\n" +
 
-                        "Use 'Save As...' to create a custom map first.",
+                        "Use 'Save As...' to create a standalone custom ERA first.",
 
                         "Custom Map Naming Mismatch",
 
@@ -3899,7 +3911,7 @@ namespace Ensemble
 
 
                 // =========================================================
-                // Select game EXE rather than root.era.
+                // Select Halo Wars executable.
                 // =========================================================
 
                 OpenFileDialog dialog =
@@ -3961,9 +3973,9 @@ namespace Ensemble
 
 
                 // =========================================================
-                // Make sure the universal Ensemble patch is installed.
+                // Patch / verify xgameFinal.exe.
                 //
-                // Safe to call repeatedly.
+                // This operation is idempotent.
                 // =========================================================
 
                 StatusText.Text =
@@ -3984,14 +3996,21 @@ namespace Ensemble
                 }
 
 
+                string patchStatus =
+                    patchResult.WasModified
+                        ? "Applied during this export"
+                        : "Already installed";
+
+
                 // =========================================================
-                // Read STOCK ScenarioDescriptions from root.era.
+                // Read STOCK ScenarioDescriptions and DE StringTables
+                // from root.era.
                 //
-                // root.era is NEVER modified.
+                // root.era itself is NEVER modified.
                 // =========================================================
 
                 StatusText.Text =
-                    "Reading stock ScenarioDescriptions...";
+                    "Reading stock Halo Wars data...";
 
 
                 EraArchiveInfo rootArchive =
@@ -4010,20 +4029,9 @@ namespace Ensemble
                         rootArchive,
                         descriptionsChunk);
 
-                // =========================================================
-                // Read the game's stock localization table.
-                //
-                // Halo Wars resolves ScenarioInfo NameStringID through
-                // data\stringtable.xml, which lives in the locale archive.
-                // =========================================================
-
 
                 // =========================================================
-                // Locate loose ScenarioDescriptions.
-                //
-                // For this clean test, deliberately rebuild from STOCK
-                // ScenarioDescriptions rather than inheriting the previous
-                // duplicate/proof XML.
+                // Prepare loose data directory.
                 // =========================================================
 
                 string dataDirectory =
@@ -4035,23 +4043,33 @@ namespace Ensemble
                 Directory.CreateDirectory(
                     dataDirectory);
 
+
+                string loosePath =
+                    Path.Combine(
+                        dataDirectory,
+                        "scenariodescriptions.xml");
+
+
+                // IMPORTANT:
+                //
+                // Preserve the current modular ScenarioDescriptions document.
+                // We no longer rebuild from stock on every export.
+                //
+                // This allows several custom maps to coexist.
+                string? existingLooseXml =
+                    File.Exists(
+                        loosePath)
+                        ? File.ReadAllText(
+                            loosePath)
+                        : null;
+
+
                 // =========================================================
-                // HALO WARS DE LOCALIZATION
-                //
-                // DE packages one StringTable per language:
-                //
-                // stringtable-en.xml.xmb
-                // stringtable-de.xml.xmb
-                // stringtable-fr.xml.xmb
-                // etc.
-                //
-                // Give every language table the SAME custom localization ID.
-                // This means custom map names work regardless of the user's
-                // selected Halo Wars language.
+                // Find all Halo Wars DE language StringTables.
                 // =========================================================
 
                 StatusText.Text =
-                    "Preparing custom map localization...";
+                    "Reading Halo Wars localization tables...";
 
 
                 List<LocalizedStringTableSource>
@@ -4103,16 +4121,145 @@ namespace Ensemble
                 }
 
 
-                string displayName =
-                    BuildDefaultMapDisplayName(
-                        eraBasename);
+                // =========================================================
+                // Load Ensemble map metadata.
+                //
+                // If the map has never had metadata before, generate sane
+                // defaults from the ERA filename.
+                // =========================================================
 
+                StatusText.Text =
+                    "Reading custom map metadata...";
+
+
+                MapMetadata metadata =
+                    _currentMapMetadata
+                    ?? MapMetadataService.Load(
+                        _currentArchive.FilePath)
+                    ?? MapMetadataService.CreateDefault(
+                        _currentArchive.FilePath);
+
+
+                _currentMapMetadata =
+                    metadata;
+
+
+                MapMetadataService.Save(
+                    _currentArchive.FilePath,
+                    metadata);
+
+
+                string displayName =
+                    metadata.DisplayName
+                        .Trim();
+
+
+                if (string.IsNullOrWhiteSpace(
+                        displayName))
+                {
+                    throw new InvalidDataException(
+                        "The custom map Display Name is empty.\n\n" +
+                        "Use Map > Map Metadata to set a name.");
+                }
+
+
+                string mapDescription =
+                    string.IsNullOrWhiteSpace(
+                        metadata.Description)
+                        ? "Custom map created with Ensemble."
+                        : metadata.Description
+                            .Trim();
+
+
+                // =========================================================
+                // Check whether THIS map has already been installed.
+                //
+                // Existing custom NameStringID / InfoStringID values are
+                // reused so re-exporting a map keeps a stable identity.
+                // =========================================================
+
+                ScenarioLocalizationIds existingIds =
+                    ScenarioDescriptionsService
+                        .GetExistingLocalizationIds(
+                            existingLooseXml,
+                            registrationFile);
+
+
+                long? existingNameId =
+                    existingIds.NameStringId;
+
+
+                long? existingInfoId =
+                    existingIds.InfoStringId;
+
+
+                // =========================================================
+                // Older Ensemble builds gave the custom map a custom
+                // NameStringID but retained the stock map's InfoStringID.
+                //
+                // Never intentionally overwrite a retail StringTable entry.
+                // =========================================================
+
+                if (existingNameId.HasValue &&
+                    !StringTableService.IsCustomStringId(
+                        existingNameId.Value))
+                {
+                    existingNameId =
+                        null;
+                }
+
+
+                if (existingInfoId.HasValue &&
+                    !StringTableService.IsCustomStringId(
+                        existingInfoId.Value))
+                {
+                    existingInfoId =
+                        null;
+                }
+
+
+                // =========================================================
+                // Allocate / reuse localization IDs.
+                // =========================================================
 
                 long customNameStringId =
-                    StringTableService
+                    existingNameId
+                    ?? StringTableService
                         .FindFreeCustomStringId(
                             stockStringTables.Values,
                             existingLooseStringTables.Values);
+
+
+                long customInfoStringId =
+                    existingInfoId
+                    ?? StringTableService
+                        .FindFreeCustomStringId(
+                            stockStringTables.Values,
+                            existingLooseStringTables.Values,
+                            new[]
+                            {
+                        customNameStringId
+                            });
+
+
+                // Name and description must never share an ID.
+                if (customNameStringId ==
+                    customInfoStringId)
+                {
+                    throw new InvalidDataException(
+                        "The map NameStringID and InfoStringID are identical.\n\n" +
+                        $"ID: {customNameStringId}");
+                }
+
+
+                // =========================================================
+                // Generate every language-specific loose StringTable.
+                //
+                // Existing loose content is preserved.
+                // =========================================================
+
+                StatusText.Text =
+                    "Building custom map localization...";
 
 
                 Dictionary<string, string>
@@ -4124,38 +4271,41 @@ namespace Ensemble
                 foreach (LocalizedStringTableSource source
                          in stringTableSources)
                 {
+                    string generatedXml =
+                        StringTableService
+                            .BuildOrUpdateLooseStringTable(
+                                stockStringTables[
+                                    source.LanguageCode],
+
+                                existingLooseStringTables[
+                                    source.LanguageCode],
+
+                                customNameStringId,
+                                displayName);
+
+
+                    // Feed the just-generated XML back into the service so
+                    // the description is added to the same document.
+                    generatedXml =
+                        StringTableService
+                            .BuildOrUpdateLooseStringTable(
+                                stockStringTables[
+                                    source.LanguageCode],
+
+                                generatedXml,
+
+                                customInfoStringId,
+                                mapDescription);
+
+
                     generatedStringTables[
                         source.LanguageCode] =
-                            StringTableService
-                                .BuildOrUpdateLooseStringTable(
-                                    stockStringTables[
-                                        source.LanguageCode],
-
-                                    existingLooseStringTables[
-                                        source.LanguageCode],
-
-                                    customNameStringId,
-                                    displayName);
+                            generatedXml;
                 }
-
-                string looseStringTablePath =
-                    Path.Combine(
-                        dataDirectory,
-                        "stringtable.xml");
-
-
-                string loosePath =
-                    Path.Combine(
-                        dataDirectory,
-                        "scenariodescriptions.xml");
-
-
-                string? existingLooseXml =
-                    null;
 
 
                 // =========================================================
-                // Build clean modular ScenarioDescriptions.
+                // Build / update modular ScenarioDescriptions.
                 // =========================================================
 
                 StatusText.Text =
@@ -4164,18 +4314,19 @@ namespace Ensemble
 
                 LooseScenarioRegistrationResult registration =
                     ScenarioDescriptionsService
-                    .BuildOrUpdateLooseScenarioDescriptions(
-                        stockDescriptionsXmb,
-                        existingLooseXml,
-                        registrationFile,
-                        customNameStringId);
+                        .BuildOrUpdateLooseScenarioDescriptions(
+                            stockDescriptionsXmb,
+                            existingLooseXml,
+                            registrationFile,
+                            customNameStringId,
+                            customInfoStringId);
 
 
                 // =========================================================
-                // Install the custom ERA FIRST.
+                // Install custom ERA FIRST.
                 //
-                // We only update ScenarioDescriptions after the archive
-                // itself has been successfully installed and verified.
+                // ScenarioDescriptions is only replaced after the ERA has
+                // been copied and verified successfully.
                 // =========================================================
 
                 string installedEraPath =
@@ -4203,7 +4354,7 @@ namespace Ensemble
 
 
                         // -------------------------------------------------
-                        // Prove the installed copy is a valid ERA.
+                        // Verify copied ERA.
                         // -------------------------------------------------
 
                         EraArchiveInfo verificationArchive =
@@ -4275,8 +4426,8 @@ namespace Ensemble
                 else
                 {
                     // -----------------------------------------------------
-                    // ERA already lives in the game directory.
-                    // Still verify the internal alias before registration.
+                    // ERA already lives in Halo Wars directory.
+                    // Verify it anyway.
                     // -----------------------------------------------------
 
                     EraArchiveInfo verificationArchive =
@@ -4290,6 +4441,13 @@ namespace Ensemble
                         ".xmb";
 
 
+                    string normalizedExpected =
+                        expectedInternalScenario
+                            .Replace(
+                                '/',
+                                '\\');
+
+
                     bool containsScenario =
                         verificationArchive
                             .Chunks
@@ -4300,7 +4458,7 @@ namespace Ensemble
                                             .Replace(
                                                 '/',
                                                 '\\'),
-                                        expectedInternalScenario,
+                                        normalizedExpected,
                                         StringComparison.OrdinalIgnoreCase));
 
 
@@ -4315,8 +4473,9 @@ namespace Ensemble
                     }
                 }
 
+
                 // =========================================================
-                // INSTALL ALL LANGUAGE-SPECIFIC LOOSE STRING TABLES
+                // Install ALL language-specific loose StringTables.
                 // =========================================================
 
                 StatusText.Text =
@@ -4342,7 +4501,7 @@ namespace Ensemble
                             + ".pre_ensemble_backup.xml");
 
 
-                    // Preserve any pre-existing loose override once.
+                    // Preserve the state before Ensemble first touched it.
                     if (File.Exists(
                             looseTablePath) &&
                         !File.Exists(
@@ -4381,17 +4540,35 @@ namespace Ensemble
                                 tempTablePath);
 
 
-                        if (!StringTableService
+                        bool containsName =
+                            StringTableService
                                 .ContainsString(
                                     verificationXml,
                                     customNameStringId,
-                                    displayName))
+                                    displayName);
+
+
+                        bool containsDescription =
+                            StringTableService
+                                .ContainsString(
+                                    verificationXml,
+                                    customInfoStringId,
+                                    mapDescription);
+
+
+                        if (!containsName ||
+                            !containsDescription)
                         {
                             throw new InvalidDataException(
                                 "Loose StringTable verification failed.\n\n" +
+
                                 $"Language: {source.LanguageCode}\n" +
                                 $"Map name: {displayName}\n" +
-                                $"Localization ID: {customNameStringId}");
+                                $"Name ID: {customNameStringId}\n" +
+                                $"Info ID: {customInfoStringId}\n\n" +
+
+                                $"Name present: {containsName}\n" +
+                                $"Description present: {containsDescription}");
                         }
 
 
@@ -4411,7 +4588,7 @@ namespace Ensemble
                     }
 
 
-                    // Loose XML must beat the archived XMB timestamp.
+                    // Loose XML should remain newer than archived XMB.
                     File.SetLastWriteTimeUtc(
                         looseTablePath,
                         DateTime.UtcNow);
@@ -4419,7 +4596,7 @@ namespace Ensemble
 
 
                 // =========================================================
-                // Preserve pre-Ensemble loose registry once.
+                // Preserve pre-Ensemble ScenarioDescriptions once.
                 // =========================================================
 
                 string looseBackupPath =
@@ -4443,6 +4620,10 @@ namespace Ensemble
                 // =========================================================
                 // Write ScenarioDescriptions LAST.
                 // =========================================================
+
+                StatusText.Text =
+                    "Writing custom map registry...";
+
 
                 string tempLoosePath =
                     loosePath +
@@ -4494,7 +4675,7 @@ namespace Ensemble
                 }
 
 
-                // Make sure loose XML remains newer than archived XMB.
+                // Keep loose XML newer than archived XMB.
                 File.SetLastWriteTimeUtc(
                     loosePath,
                     DateTime.UtcNow);
@@ -4507,19 +4688,19 @@ namespace Ensemble
                 string registryAction =
                     registration.Added
                         ? "Added new map entry"
-                        : "Map entry already existed";
+                        : "Updated existing map entry";
 
 
                 string duplicateText =
                     registration.RemovedDuplicateCount >
                         0
-                        ? $"\nRemoved duplicate entries: " +
+                        ? "\nRemoved duplicate entries: " +
                           $"{registration.RemovedDuplicateCount}\n"
                         : string.Empty;
 
 
                 StatusText.Text =
-                    $"Installed custom map: {eraBasename}.";
+                    $"Installed custom map: {displayName}";
 
 
                 MessageBox.Show(
@@ -4527,8 +4708,10 @@ namespace Ensemble
 
                     "Custom map installed successfully.\n\n" +
 
-                    $"{registryAction}\n" +
+                    $"EXE modding patch:\n" +
+                    $"{patchStatus}\n\n" +
 
+                    $"{registryAction}\n" +
                     $"Scenario entries: {registration.ScenarioCount}\n" +
 
                     duplicateText +
@@ -4544,16 +4727,25 @@ namespace Ensemble
 
                     $"Display name:\n" +
                     $"{displayName}\n\n" +
-                    
-                    $"Localization ID:\n" +
+
+                    $"Description:\n" +
+                    $"{mapDescription}\n\n" +
+
+                    $"NameStringID:\n" +
                     $"{customNameStringId}\n\n" +
-                    
+
+                    $"InfoStringID:\n" +
+                    $"{customInfoStringId}\n\n" +
+
                     $"Localized tables installed:\n" +
                     $"{stringTableSources.Count}\n\n" +
 
-                    "",
+                    $"Loose registry:\n" +
+                    $"{loosePath}\n\n" +
 
-                    "",
+                    "root.era was read only and was not modified.",
+
+                    "Custom Map Installed",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -5607,6 +5799,27 @@ namespace Ensemble
                 _currentScenarioChunk =
                     savedScenarioChunk;
 
+                // =========================================================
+                // Ensemble map metadata.
+                //
+                // A brand-new Save As receives metadata derived from the
+                // new ERA basename. Existing custom-map metadata is carried
+                // forward.
+                // =========================================================
+
+                if (_currentMapMetadata ==
+                    null)
+                {
+                    _currentMapMetadata =
+                        MapMetadataService.CreateDefault(
+                            targetPath);
+                }
+
+
+                MapMetadataService.Save(
+                    targetPath,
+                    _currentMapMetadata);
+
                 if (_currentTerrainChunk !=
                     null)
                 {
@@ -6050,9 +6263,64 @@ namespace Ensemble
                 $"ID {e.Object.Id}";
         }
 
-        //
+        // =========================================================
+        // Map
+        // =========================================================
+        private void MapMetadata_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentArchive ==
+                    null ||
+                _currentScenarioChunk ==
+                    null)
+            {
+                return;
+            }
+
+
+            MapMetadata metadata =
+                _currentMapMetadata
+                ?? MapMetadataService.CreateDefault(
+                    _currentArchive.FilePath);
+
+
+            MapMetadataWindow dialog =
+                new MapMetadataWindow(
+                    _currentArchive.FileName,
+                    metadata)
+                {
+                    Owner =
+                        this
+                };
+
+
+            if (dialog.ShowDialog() !=
+                    true ||
+                dialog.Metadata ==
+                    null)
+            {
+                return;
+            }
+
+
+            _currentMapMetadata =
+                dialog.Metadata;
+
+
+            MapMetadataService.Save(
+                _currentArchive.FilePath,
+                _currentMapMetadata);
+
+
+            StatusText.Text =
+                $"Map metadata updated: " +
+                $"{_currentMapMetadata.DisplayName}";
+        }
+
+        // =========================================================
         // Help
-        //
+        // =======================================================
         private void LinkToSource_Click(object sender, RoutedEventArgs e)
         {
 

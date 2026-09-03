@@ -355,12 +355,99 @@ namespace Ensemble.Services
                     });
         }
 
+        public static ScenarioLocalizationIds
+    GetExistingLocalizationIds(
+        string? scenarioDescriptionsXml,
+        string targetScenarioFile)
+        {
+            ScenarioLocalizationIds result =
+                new ScenarioLocalizationIds();
+
+
+            if (string.IsNullOrWhiteSpace(
+                    scenarioDescriptionsXml))
+            {
+                return result;
+            }
+
+
+            XDocument document =
+                XDocument.Parse(
+                    scenarioDescriptionsXml);
+
+
+            string target =
+                NormalizeScenarioPath(
+                    targetScenarioFile);
+
+
+            XElement? entry =
+                document
+                    .Descendants()
+                    .Where(
+                        x =>
+                            string.Equals(
+                                x.Name.LocalName,
+                                "ScenarioInfo",
+                                StringComparison.Ordinal))
+                    .FirstOrDefault(
+                        x =>
+                        {
+                            string? file =
+                                x.Attribute(
+                                    "File")
+                                ?.Value;
+
+
+                            return file !=
+                                       null &&
+                                   string.Equals(
+                                       NormalizeScenarioPath(
+                                           file),
+                                       target,
+                                       StringComparison.OrdinalIgnoreCase);
+                        });
+
+
+            if (entry ==
+                null)
+            {
+                return result;
+            }
+
+
+            if (long.TryParse(
+                    entry.Attribute(
+                        "NameStringID")
+                    ?.Value,
+                    out long nameId))
+            {
+                result.NameStringId =
+                    nameId;
+            }
+
+
+            if (long.TryParse(
+                    entry.Attribute(
+                        "InfoStringID")
+                    ?.Value,
+                    out long infoId))
+            {
+                result.InfoStringId =
+                    infoId;
+            }
+
+
+            return result;
+        }
+
         public static LooseScenarioRegistrationResult
     BuildOrUpdateLooseScenarioDescriptions(
-        byte[] stockScenarioDescriptionsXmb,
-        string? existingLooseXml,
-        string targetScenarioFile,
-        long customNameStringId)
+    byte[] stockScenarioDescriptionsXmb,
+    string? existingLooseXml,
+    string targetScenarioFile,
+    long customNameStringId,
+    long customInfoStringId)
         {
             if (stockScenarioDescriptionsXmb ==
                 null)
@@ -498,6 +585,11 @@ namespace Ensemble.Services
             customEntry.SetAttributeValue(
                 "NameStringID",
                 customNameStringId.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+            customEntry.SetAttributeValue(
+                "InfoStringID",
+                customInfoStringId.ToString(
                     System.Globalization.CultureInfo.InvariantCulture));
 
 
@@ -882,6 +974,22 @@ namespace Ensemble.Services
         public override System.Text.Encoding Encoding =>
             new System.Text.UTF8Encoding(
                 encoderShouldEmitUTF8Identifier: false);
+    }
+
+    public sealed class ScenarioLocalizationIds
+    {
+        public long? NameStringId
+        {
+            get;
+            set;
+        }
+
+
+        public long? InfoStringId
+        {
+            get;
+            set;
+        }
     }
 
     public sealed class LooseScenarioRegistrationResult

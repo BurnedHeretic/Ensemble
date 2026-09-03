@@ -103,7 +103,12 @@
 
 
             <MenuItem Header="_Map">
-                
+
+                <MenuItem x:Name="MapMetadataMenuItem"
+              Header="_Map Metadata..."
+              Click="MapMetadata_Click"
+              IsEnabled="False"/>
+
             </MenuItem>
 
 
