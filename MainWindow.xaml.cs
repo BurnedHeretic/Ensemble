@@ -60,6 +60,9 @@ namespace Ensemble
         private MapMetadata?
             _currentMapMetadata;
 
+        private EraManifestFooterService.Manifest?
+            _currentEraManifest;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -405,8 +408,31 @@ namespace Ensemble
                 EraArchiveService.Open(
                     filePath);
 
-            _currentMapMetadata =
-                MapMetadataService.Load(filePath);
+            _currentEraManifest =
+                EraManifestFooterService.TryRead(filePath);
+
+
+            if (_currentEraManifest !=
+                null)
+            {
+                _currentMapMetadata =
+                    new MapMetadata
+                    {
+                        DisplayName =
+                            _currentEraManifest.DisplayName,
+
+                        Description =
+                            _currentEraManifest.Description
+                    };
+            }
+            else
+            {
+                // Backwards compatibility for maps made before
+                // ERA-embedded metadata existed.
+                _currentMapMetadata =
+                    MapMetadataService.Load(
+                        filePath);
+            }
 
             ScenarioMapCanvas.CancelObjectPlacement();
 
@@ -4827,6 +4853,105 @@ namespace Ensemble
                 .ToUpperInvariant();
         }
 
+        private string BuildManifestScenarioFile(
+            string targetPath,
+            bool renameScenarioCompanions)
+        {
+            if (_currentScenarioChunk ==
+                null)
+            {
+                throw new InvalidOperationException(
+                    "No scenario is loaded.");
+            }
+
+
+            string path =
+                _currentScenarioChunk
+                    .FileName
+                    .Replace(
+                        '/',
+                        '\\');
+
+
+            const string prefix =
+                "scenario\\";
+
+            if (path.StartsWith(
+                    prefix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                path =
+                    path[
+                        prefix.Length..];
+            }
+
+
+            if (!path.EndsWith(
+                    ".scn.xmb",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The current scenario does not end in .scn.xmb.");
+            }
+
+
+            if (renameScenarioCompanions)
+            {
+                int slash =
+                    path.LastIndexOf(
+                        '\\');
+
+
+                string directory =
+                    slash >= 0
+                        ? path[
+                            ..(slash + 1)]
+                        : string.Empty;
+
+
+                string newBasename =
+                    Path.GetFileNameWithoutExtension(
+                        targetPath);
+
+
+                path =
+                    directory +
+                    newBasename +
+                    ".scn.xmb";
+            }
+
+
+            // Manifest uses ScenarioDescriptions form:
+            //
+            // skirmish\design\blood_gulch\small_gulch.scn
+            //
+            // not scenario\... and not .xmb.
+            return path[
+                ..^4];
+        }
+
+
+        private static int ResolveManifestMaxPlayers(
+            ScenarioMap map)
+        {
+            int starts =
+                map.PlayerStarts.Count;
+
+
+            if (starts is
+                2 or 4 or 6)
+            {
+                return starts;
+            }
+
+
+            throw new InvalidDataException(
+                "Ensemble cannot determine the Halo Wars " +
+                "MaxPlayers bucket for this map.\n\n" +
+                $"Player starts: {starts}\n\n" +
+                "Supported values are 2, 4, or 6.");
+        }
+
         private static void AddScenarioCompanionRename(
             EraArchiveInfo archive,
             Dictionary<int, string> renames,
@@ -5461,32 +5586,47 @@ namespace Ensemble
                 return false;
             }
 
+
             string tempPath =
                 targetPath +
                 ".ensemble.tmp";
 
+
             try
             {
+                // =========================================================
+                // SCENARIO
+                // =========================================================
+
                 StatusText.Text =
                     "Building modified scenario...";
+
 
                 ScenarioMap expected =
                     ScenarioMapCanvas.Scenario;
 
+
                 bool hadTerrainChanges =
                     ScenarioMapCanvas
-                    .HasTerrainPreviewChanges;
+                        .HasTerrainPreviewChanges;
+
 
                 TerrainHeightMap? expectedTerrain =
                     ScenarioMapCanvas
                         .TerrainHeightMap;
 
+
                 byte[]? modifiedXtd =
                     null;
+
 
                 byte[]? modifiedXsd =
                     null;
 
+
+                // =========================================================
+                // TERRAIN
+                // =========================================================
 
                 if (hadTerrainChanges)
                 {
@@ -5512,14 +5652,16 @@ namespace Ensemble
                             _currentTerrainOriginalXtdData,
                             expectedTerrain);
 
+
                     if (_currentSimulationChunk ==
-                        null ||
+                            null ||
                         _currentSimulationOriginalXsdData ==
-                        null)
+                            null)
                     {
                         throw new InvalidDataException(
                             "Terrain was sculpted, but this map's XSD " +
                             "simulation file could not be found.\n\n" +
+
                             "Ensemble will not save visual terrain without " +
                             "also updating gameplay terrain.");
                     }
@@ -5536,10 +5678,10 @@ namespace Ensemble
 
                     modifiedXsd =
                         TerrainXsdService
-                        .WriteSynchronizedHeights(
-                            _currentSimulationOriginalXsdData,
-                            originalTerrain,
-                            expectedTerrain);
+                            .WriteSynchronizedHeights(
+                                _currentSimulationOriginalXsdData,
+                                originalTerrain,
+                                expectedTerrain);
 
 
                     TerrainHeightMap encodedTerrain =
@@ -5552,35 +5694,52 @@ namespace Ensemble
                         encodedTerrain);
                 }
 
+
+                // =========================================================
+                // STRUCTURAL CHANGE STATE
+                // =========================================================
+
                 bool hadStructuralChanges =
                     expected.Objects.Any(
                         x =>
-            x.IsNewObject
-            ||
-            !string.Equals(
-                x.EditorName,
-                x.OriginalEditorName,
-                StringComparison.Ordinal))
+                            x.IsNewObject
+                            ||
+                            !string.Equals(
+                                x.EditorName,
+                                x.OriginalEditorName,
+                                StringComparison.Ordinal))
                     ||
-                    expected.DeletedObjectIds.Count > 0
+                    expected.DeletedObjectIds.Count >
+                        0
                     ||
                     expected.Paths.Any(
                         x =>
-            x.HasPointChanges);
+                            x.HasPointChanges);
+
+
+                // =========================================================
+                // BUILD SCENARIO XMB
+                // =========================================================
 
                 byte[] modifiedXmb =
                     XmbDocumentService.WriteScenario(
                         _currentScenarioOriginalXmbData,
                         expected);
 
+
+                // =========================================================
+                // BUILD REPLACEMENTS
+                // =========================================================
+
                 StatusText.Text =
                     "Rebuilding and encrypting ERA...";
+
 
                 Dictionary<int, byte[]> replacements =
                     new()
                     {
                         [_currentScenarioChunk.Index] =
-                        modifiedXmb
+                            modifiedXmb
                     };
 
 
@@ -5594,17 +5753,25 @@ namespace Ensemble
                             modifiedXtd;
                 }
 
+
                 if (modifiedXsd !=
-                    null &&
+                        null &&
                     _currentSimulationChunk !=
-                    null)
+                        null)
                 {
                     replacements[
                         _currentSimulationChunk.Index] =
                             modifiedXsd;
                 }
 
-                Dictionary<int, string> fileRenames = new();
+
+                // =========================================================
+                // SAVE AS:
+                // Rename scenario-derived companion files.
+                // =========================================================
+
+                Dictionary<int, string> fileRenames =
+                    new();
 
 
                 if (renameScenarioCompanions)
@@ -5621,6 +5788,7 @@ namespace Ensemble
                         throw new InvalidDataException(
                             "The ERA filename cannot be used as a Halo Wars " +
                             "scenario basename.\n\n" +
+
                             "Use only letters, numbers, underscores and hyphens.");
                     }
 
@@ -5633,29 +5801,308 @@ namespace Ensemble
                 }
 
 
+                // =========================================================
+                // BUILD NORMAL HALO WARS ERA
+                // =========================================================
+
                 byte[] modifiedEra =
                     EraRebuildService.BuildModifiedEra(
                         _currentArchive,
                         replacements,
                         fileRenames);
 
-                // -----------------------------------------------------
-                // Write to TEMP first.
+
+                // =========================================================
+                // BUILD ENSEMBLE EMBEDDED MAP METADATA
                 //
-                // We never overwrite a working ERA until the newly
-                // generated archive has passed Ensemble's verification.
-                // -----------------------------------------------------
+                // New Save As:
+                // use metadata already edited by the user if present,
+                // otherwise generate it from the new ERA name.
+                //
+                // Existing ERA:
+                // metadata may already have been loaded from ENSMAP1.
+                //
+                // Old Ensemble maps:
+                // MapMetadataService remains a migration fallback.
+                // =========================================================
+
+                MapMetadata metadata =
+                    _currentMapMetadata
+                    ?? MapMetadataService.Load(
+                        _currentArchive.FilePath)
+                    ?? MapMetadataService.CreateDefault(
+                        targetPath);
+
+
+                _currentMapMetadata =
+                    metadata;
+
+
+                string displayName =
+                    metadata.DisplayName?
+                        .Trim()
+                    ?? string.Empty;
+
+
+                if (string.IsNullOrWhiteSpace(
+                        displayName))
+                {
+                    throw new InvalidDataException(
+                        "The map Display Name is empty.\n\n" +
+                        "Use Map > Map Metadata to enter a map name.");
+                }
+
+
+                string description =
+                    metadata.Description?
+                        .Trim()
+                    ?? string.Empty;
+
+
+                // =========================================================
+                // DETERMINE MANIFEST SCENARIO PATH
+                //
+                // Archive path:
+                //
+                // scenario\skirmish\design\blood_gulch\
+                // small_gulch.scn.xmb
+                //
+                // Manifest path:
+                //
+                // skirmish\design\blood_gulch\
+                // small_gulch.scn
+                // =========================================================
+
+                string manifestScenarioPath =
+                    _currentScenarioChunk
+                        .FileName
+                        .Replace(
+                            '/',
+                            '\\');
+
+
+                const string scenarioPrefix =
+                    "scenario\\";
+
+
+                if (manifestScenarioPath.StartsWith(
+                        scenarioPrefix,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    manifestScenarioPath =
+                        manifestScenarioPath[
+                            scenarioPrefix.Length..];
+                }
+
+
+                if (!manifestScenarioPath.EndsWith(
+                        ".scn.xmb",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "The currently loaded scenario filename does not " +
+                        "end in .scn.xmb.\n\n" +
+
+                        manifestScenarioPath);
+                }
+
+
+                // Save As changes the internal scenario basename.
+                if (renameScenarioCompanions)
+                {
+                    int slash =
+                        manifestScenarioPath
+                            .LastIndexOf(
+                                '\\');
+
+
+                    string directory =
+                        slash >=
+                            0
+                            ? manifestScenarioPath[
+                                ..(slash + 1)]
+                            : string.Empty;
+
+
+                    string targetBasename =
+                        Path.GetFileNameWithoutExtension(
+                            targetPath)
+                        .Trim();
+
+
+                    manifestScenarioPath =
+                        directory +
+                        targetBasename +
+                        ".scn.xmb";
+                }
+
+
+                // Remove ".xmb", leaving ".scn".
+                manifestScenarioPath =
+                    manifestScenarioPath[
+                        ..^4];
+
+
+                // =========================================================
+                // MAX PLAYERS
+                //
+                // Halo Wars' ScenarioInfo uses the 2 / 4 / 6-player
+                // buckets.
+                // =========================================================
+
+                int manifestMaxPlayers =
+                    expected.PlayerStarts.Count;
+
+
+                if (manifestMaxPlayers is not
+                    (2 or 4 or 6))
+                {
+                    throw new InvalidDataException(
+                        "Ensemble cannot determine the Halo Wars " +
+                        "MaxPlayers value for this scenario.\n\n" +
+
+                        $"Player starts found: {manifestMaxPlayers}\n\n" +
+
+                        "Supported ScenarioInfo values are 2, 4, and 6.");
+                }
+
+
+                // =========================================================
+                // CREATE ENSMAP1 MANIFEST
+                //
+                // Preserve optional values if this ERA already had them.
+                // =========================================================
+
+                EraManifestFooterService.Manifest manifest =
+                    new EraManifestFooterService.Manifest
+                    {
+                        ScenarioFile =
+                            manifestScenarioPath,
+
+                        DisplayName =
+                            displayName,
+
+                        Description =
+                            description,
+
+                        MaxPlayers =
+                            manifestMaxPlayers,
+
+                        LoadingScreen =
+                            _currentEraManifest?
+                                .LoadingScreen
+                            ?? string.Empty,
+
+                        MapName =
+                            _currentEraManifest?
+                                .MapName
+                            ?? string.Empty
+                    };
+
+
+                // =========================================================
+                // ATTACH MANIFEST TO ERA
+                //
+                // The service writes ENSMAP1 into the reserved trailing
+                // ERA footer area without changing archive length.
+                // =========================================================
+
+                StatusText.Text =
+                    "Embedding modular map manifest...";
+
+
+                modifiedEra =
+                    EraManifestFooterService.Attach(
+                        modifiedEra,
+                        manifest);
+
+
+                // =========================================================
+                // WRITE TEMP FILE FIRST
+                // =========================================================
 
                 File.WriteAllBytes(
                     tempPath,
                     modifiedEra);
 
+
+                // =========================================================
+                // VERIFY ENSMAP1 FOOTER
+                // =========================================================
+
+                StatusText.Text =
+                    "Verifying embedded map manifest...";
+
+
+                EraManifestFooterService.Manifest?
+                    verificationManifest =
+                        EraManifestFooterService.TryRead(
+                            tempPath);
+
+
+                if (verificationManifest ==
+                    null)
+                {
+                    throw new InvalidDataException(
+                        "Saved ERA does not contain a valid " +
+                        "Ensemble ENSMAP1 manifest.");
+                }
+
+
+                if (!string.Equals(
+                        verificationManifest.ScenarioFile,
+                        manifest.ScenarioFile,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "ERA manifest ScenarioFile failed verification.\n\n" +
+
+                        $"Expected:\n{manifest.ScenarioFile}\n\n" +
+
+                        $"Actual:\n{verificationManifest.ScenarioFile}");
+                }
+
+
+                if (!string.Equals(
+                        verificationManifest.DisplayName,
+                        manifest.DisplayName,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "ERA manifest DisplayName failed verification.");
+                }
+
+
+                if (!string.Equals(
+                        verificationManifest.Description,
+                        manifest.Description,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "ERA manifest Description failed verification.");
+                }
+
+
+                if (verificationManifest.MaxPlayers !=
+                    manifest.MaxPlayers)
+                {
+                    throw new InvalidDataException(
+                        "ERA manifest MaxPlayers failed verification.");
+                }
+
+
+                // =========================================================
+                // VERIFY NORMAL ERA CONTENTS
+                // =========================================================
+
                 StatusText.Text =
                     "Verifying saved ERA...";
+
 
                 EraArchiveInfo verificationArchive =
                     EraArchiveService.Open(
                         tempPath);
+
 
                 if (_currentScenarioChunk.Index >=
                     verificationArchive.Chunks.Count)
@@ -5664,26 +6111,36 @@ namespace Ensemble
                         "Saved ERA lost the scenario chunk.");
                 }
 
+
                 EraChunkInfo verificationChunk =
                     verificationArchive.Chunks[
                         _currentScenarioChunk.Index];
+
 
                 byte[] verificationXmb =
                     EraExtractionService.ExtractChunk(
                         verificationArchive,
                         verificationChunk);
 
+
                 string verificationXml =
                     XmbDocumentService.Read(
                         verificationXmb);
+
 
                 ScenarioMap verificationScenario =
                     ScenarioParserService.Parse(
                         verificationXml);
 
+
                 ValidateScenarioRoundTrip(
                     expected,
                     verificationScenario);
+
+
+                // =========================================================
+                // VERIFY TERRAIN
+                // =========================================================
 
                 if (hadTerrainChanges)
                 {
@@ -5715,11 +6172,20 @@ namespace Ensemble
                             verificationArchive,
                             verificationTerrainChunk);
 
+
                     if (modifiedXsd !=
-                        null &&
+                            null &&
                         _currentSimulationChunk !=
-                        null)
+                            null)
                     {
+                        if (_currentSimulationChunk.Index >=
+                            verificationArchive.Chunks.Count)
+                        {
+                            throw new InvalidDataException(
+                                "Saved ERA lost the simulation XSD chunk.");
+                        }
+
+
                         EraChunkInfo verificationSimulationChunk =
                             verificationArchive.Chunks[
                                 _currentSimulationChunk.Index];
@@ -5742,7 +6208,7 @@ namespace Ensemble
                         }
 
 
-                        // Also prove the resulting file can be parsed.
+                        // Also prove the resulting XSD is parseable.
                         TerrainXsdService.Read(
                             verificationXsd,
                             expectedTerrain);
@@ -5759,85 +6225,128 @@ namespace Ensemble
                         verificationTerrain);
                 }
 
-                // -----------------------------------------------------
-                // New archive is now proven readable.
-                // Only now do we touch the destination.
-                // -----------------------------------------------------
+
+                // =========================================================
+                // COMMIT VERIFIED FILE
+                // =========================================================
 
                 CreateSaveBackupIfNeeded(
                     targetPath);
+
 
                 File.Copy(
                     tempPath,
                     targetPath,
                     overwrite: true);
 
+
                 File.Delete(
                     tempPath);
 
-                // -----------------------------------------------------
-                // The saved ERA now becomes our new document base.
-                // Future Ctrl+S operations build from this version.
-                // -----------------------------------------------------
+
+                // =========================================================
+                // REOPEN SAVED ERA
+                //
+                // This becomes the new working baseline for future Ctrl+S.
+                // =========================================================
 
                 EraArchiveInfo savedArchive =
                     EraArchiveService.Open(
                         targetPath);
 
+
+                if (_currentScenarioChunk.Index >=
+                    savedArchive.Chunks.Count)
+                {
+                    throw new InvalidDataException(
+                        "Saved ERA lost the scenario chunk after reopening.");
+                }
+
+
                 EraChunkInfo savedScenarioChunk =
                     savedArchive.Chunks[
                         _currentScenarioChunk.Index];
+
 
                 byte[] savedScenarioXmb =
                     EraExtractionService.ExtractChunk(
                         savedArchive,
                         savedScenarioChunk);
 
+
                 _currentArchive =
                     savedArchive;
+
 
                 _currentScenarioChunk =
                     savedScenarioChunk;
 
+
+                _currentScenarioOriginalXmbData =
+                    savedScenarioXmb;
+
+
+                // Manifest is now canonical metadata stored inside ERA.
+                _currentEraManifest =
+                    verificationManifest;
+
+
+                _currentMapMetadata =
+                    new MapMetadata
+                    {
+                        DisplayName =
+                            verificationManifest.DisplayName,
+
+                        Description =
+                            verificationManifest.Description
+                    };
+
+
                 // =========================================================
-                // Ensemble map metadata.
-                //
-                // A brand-new Save As receives metadata derived from the
-                // new ERA basename. Existing custom-map metadata is carried
-                // forward.
+                // REFRESH TERRAIN BASELINES
                 // =========================================================
-
-                if (_currentMapMetadata ==
-                    null)
-                {
-                    _currentMapMetadata =
-                        MapMetadataService.CreateDefault(
-                            targetPath);
-                }
-
-
-                MapMetadataService.Save(
-                    targetPath,
-                    _currentMapMetadata);
 
                 if (_currentTerrainChunk !=
                     null)
                 {
+                    if (_currentTerrainChunk.Index >=
+                        savedArchive.Chunks.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Saved ERA lost the terrain chunk after reopening.");
+                    }
+
+
                     EraChunkInfo savedTerrainChunk =
                         savedArchive.Chunks[
                             _currentTerrainChunk.Index];
+
 
                     byte[] savedTerrainXtd =
                         EraExtractionService.ExtractChunk(
                             savedArchive,
                             savedTerrainChunk);
 
+
                     _currentTerrainChunk =
                         savedTerrainChunk;
+
+
+                    _currentTerrainOriginalXtdData =
+                        savedTerrainXtd;
+
 
                     if (_currentSimulationChunk !=
                         null)
                     {
+                        if (_currentSimulationChunk.Index >=
+                            savedArchive.Chunks.Count)
+                        {
+                            throw new InvalidDataException(
+                                "Saved ERA lost the simulation chunk after reopening.");
+                        }
+
+
                         EraChunkInfo savedSimulationChunk =
                             savedArchive.Chunks[
                                 _currentSimulationChunk.Index];
@@ -5852,12 +6361,10 @@ namespace Ensemble
                         _currentSimulationChunk =
                             savedSimulationChunk;
 
+
                         _currentSimulationOriginalXsdData =
                             savedSimulationXsd;
                     }
-
-                    _currentTerrainOriginalXtdData =
-                        savedTerrainXtd;
 
 
                     if (hadTerrainChanges)
@@ -5866,53 +6373,70 @@ namespace Ensemble
                             TerrainXtdService.Read(
                                 savedTerrainXtd);
 
+
                         ScenarioMapCanvas
                             .SetTerrainHeightMap(
                                 savedTerrain);
                     }
                 }
 
-                _currentScenarioOriginalXmbData =
-                    savedScenarioXmb;
 
-                foreach (ScenarioObject obj in expected.Objects)
+                // =========================================================
+                // ACCEPT CURRENT STRUCTURAL STATE AS SAVED BASELINE
+                // =========================================================
+
+                foreach (ScenarioObject obj
+                         in expected.Objects)
                 {
                     obj.IsNewObject =
                         false;
 
+
                     obj.SourceObjectId =
                         obj.Id;
+
 
                     obj.OriginalEditorName =
                         obj.EditorName;
                 }
 
+
                 expected.DeletedObjectIds.Clear();
 
+
                 foreach (ScenarioPath path
-                    in expected.Paths)
+                         in expected.Paths)
                 {
                     path.AcceptPointChangesAsBaseline();
                 }
 
+
+                // =========================================================
+                // HISTORY
+                // =========================================================
+
                 if (hadStructuralChanges)
                 {
-                    // The new saved XMX is now the structural baseline.
-                    // Old structural undo actions refer to the previous
-                    // node topology and are therefore intentionally discarded.
+                    // Structural XMX topology has changed, therefore old
+                    // structural undo actions are no longer valid.
 
                     _undoStack.Clear();
 
+
                     _redoStack.Clear();
+
 
                     _nextRevisionId =
                         0;
 
+
                     _currentRevisionId =
                         0;
 
+
                     _savedRevisionId =
                         0;
+
 
                     UpdateUndoRedoUi();
                 }
@@ -5922,25 +6446,38 @@ namespace Ensemble
                         _currentRevisionId;
                 }
 
+
+                // =========================================================
+                // UPDATE DOCUMENT STATE
+                // =========================================================
+
                 _currentSavePath =
                     targetPath;
+
 
                 _savedRevisionId =
                     _currentRevisionId;
 
+
                 UpdateDirtyState();
 
-                // The saved archive has new chunk metadata:
-                // offsets, sizes, Adler32 values, hashes, etc.
-                //
-                // Rebuild the archive tree so its TreeViewItem.Tag
-                // objects refer to the newly-opened savedArchive.
+
+                // Saved archive has new offsets/sizes/checksums/hashes.
+                // Rebuild TreeView tags from the newly reopened archive.
                 BuildArchiveTree();
+
 
                 ShowArchiveInformation();
 
+
                 StatusText.Text =
-                    $"Saved {System.IO.Path.GetFileName(targetPath)}";
+                    $"Saved {Path.GetFileName(targetPath)} " +
+                    "with embedded ENSMAP1 manifest.";
+
+
+                // =========================================================
+                // SUCCESS
+                // =========================================================
 
                 if (showSuccessDialog)
                 {
@@ -5948,14 +6485,24 @@ namespace Ensemble
                         this,
 
                         "Halo Wars ERA saved successfully.\n\n" +
+
                         "Ensemble rebuilt, encrypted, reopened and " +
-                        "verified the saved archive.",
+                        "verified the archive.\n\n" +
+
+                        "Embedded map manifest:\n" +
+
+                        $"Display name: {manifest.DisplayName}\n" +
+                        $"Scenario: {manifest.ScenarioFile}\n" +
+                        $"Max players: {manifest.MaxPlayers}\n\n" +
+
+                        "This ERA now contains its Ensemble map metadata.",
 
                         "Save Complete",
 
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
                 }
+
 
                 return true;
             }
@@ -5972,8 +6519,9 @@ namespace Ensemble
                 }
                 catch
                 {
-                    // Don't mask the real save error.
+                    // Do not mask the original save error.
                 }
+
 
                 MessageBox.Show(
                     this,
@@ -5984,8 +6532,10 @@ namespace Ensemble
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
+
                 StatusText.Text =
                     "Save failed.";
+
 
                 return false;
             }
