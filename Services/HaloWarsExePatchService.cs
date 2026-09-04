@@ -1,5 +1,6 @@
 ﻿using System.Buffers.Binary;
 using System.IO;
+using System.Reflection;
 using System.Security.Cryptography;
 
 namespace Ensemble.Services
@@ -7,122 +8,212 @@ namespace Ensemble.Services
     public static class HaloWarsExePatchService
     {
         // =========================================================
-        // ENSEMBLE MODDING PATCH
+        // SUPPORTED HALO WARS DE BUILD
         //
-        // Each patch stage is independent and idempotent.
+        // Stock xgameFinal.exe:
+        //   Size: 0x1637200
+        //   SHA1: DADC7A0DE6A7B5EFC76C343D909E3686773E8642
         //
-        // Running Ensemble on:
+        // Current Ensemble modular result:
+        //   Size: 0x163BC00
+        //   SHA1: 5DA29710BA569D82C5B8B6FF97DFA1DD95FFFE68
         //
-        // Stock EXE
-        // Old Ensemble-patched EXE
-        // Current Ensemble-patched EXE
-        //
-        // should simply apply whichever stages are missing.
+        // The modular result is deterministic. Ensemble also accepts
+        // the previous two-stage patch (ERA bypass / loose files) and
+        // normalizes it back to the supported stock image before
+        // installing the current modular patch.
         // =========================================================
+
+        private const int StockFileSize =
+            0x1637200;
+
+        private const int ModularFileSize =
+            0x163BC00;
+
+        private const int ModularPayloadSize =
+            ModularFileSize -
+            StockFileSize;
+
+        private const string StockSha1 =
+            "DADC7A0DE6A7B5EFC76C343D909E3686773E8642";
+
+        private const string ModularSha1 =
+            "5DA29710BA569D82C5B8B6FF97DFA1DD95FFFE68";
+
+        private const string PayloadSha1 =
+            "3245DF6C5DFF8C55F8754AB794BFB8C6D9174335";
 
 
         // =========================================================
-        // PATCH 1
-        // ERA SIGNATURE BYPASS
-        //
-        // Based on the public KSoft.Phoenix / PhxGUI patch.
+        // PE HEADER PATCH
         // =========================================================
 
-        private static readonly short[]
-            EraUnpatchedPattern =
+        private const int AddressOfEntryPointOffset =
+            0x188;
+
+        private const uint StockEntryPointRva =
+            0x00CC25F4;
+
+        private const uint ModularEntryPointRva =
+            0x01C33000;
+
+
+        private const int SizeOfImageOffset =
+            0x1B0;
+
+        private const uint StockSizeOfImage =
+            0x01C2F000;
+
+        private const uint ModularSizeOfImage =
+            0x01C34000;
+
+
+        // .reloc section header.
+        private const int RelocVirtualSizeOffset =
+            0x3D8;
+
+        private const uint StockRelocVirtualSize =
+            0x0002C724;
+
+        private const uint ModularRelocVirtualSize =
+            0x00031141;
+
+
+        private const int RelocRawSizeOffset =
+            0x3E0;
+
+        private const uint StockRelocRawSize =
+            0x0002C800;
+
+        private const uint ModularRelocRawSize =
+            0x00031200;
+
+
+        private const int RelocCharacteristicsOffset =
+            0x3F4;
+
+        private const uint StockRelocCharacteristics =
+            0x42000040;
+
+        private const uint ModularRelocCharacteristics =
+            0xE0000060;
+
+
+        // =========================================================
+        // ORIGINAL ENSEMBLE PATCH STAGES
+        // =========================================================
+
+        private const int EraSignaturePatchOffset =
+            0x683F90;
+
+        private static readonly byte[]
+            EraSignatureOriginal =
         {
-            0xE8, -1, -1, 0xFF, 0xFF,
-            0x90,
-            -1, 0xFB,
-            0x41, 0x3B, 0x5E, 0x20,
-            0x0F, 0x83,
-            -1, 0x00, 0x00, 0x00
+            0x0F, 0x83, 0xC9, 0x00, 0x00, 0x00
+        };
+
+        private static readonly byte[]
+            EraSignaturePatched =
+        {
+            0xE9, 0x10, 0x01, 0x00, 0x00, 0x00
         };
 
 
-        private static readonly short[]
-            EraPatchedPattern =
-        {
-            0xE8, -1, -1, 0xFF, 0xFF,
-            0x90,
-            -1, 0xFB,
-            0x41, 0x3B, 0x5E, 0x20,
-            0xE9,
-            -1, -1, -1, -1,
-            0x00
-        };
+        private const int LooseFilesPatchOffset =
+            0x82032B;
 
+        private const byte LooseFilesOriginal =
+            0x01;
 
-        private const int
-            EraNextJumpOffset =
-                14;
-
-
-        private const int
-            EraModJumpOffset =
-                12;
+        private const byte LooseFilesPatched =
+            0x00;
 
 
         // =========================================================
-        // PATCH 2
-        // ENABLE LOOSE FILES
-        //
-        // Halo Wars final-build filesystem setup contains:
-        //
-        // C6 07 01
-        // C6 06 01
-        // 41 C6 06 01
-        // 80 3F 00
-        // 0F 85 ?? ?? ?? ??
-        //
-        // The second store is:
-        //
-        // disableLooseFilesOut = true
-        //
-        // We change only its immediate value:
-        //
-        // true → false
-        //
-        // Archives remain enabled.
+        // MODULAR ERA / ENSMAP1 HOOKS
         // =========================================================
 
-        private static readonly short[]
-            LooseFilesUnpatchedPattern =
+        private const int ScenarioListLoadPatchOffset =
+            0x5C750;
+
+        private static readonly byte[]
+            ScenarioListLoadOriginal =
         {
-            0xC6, 0x07, 0x01,
+            0x48, 0x8B, 0xC4, 0x55, 0x41, 0x54
+        };
 
-            0xC6, 0x06, 0x01,
-
-            0x41, 0xC6, 0x06, 0x01,
-
-            0x80, 0x3F, 0x00,
-
-            0x0F, 0x85,
-            -1, -1, -1, -1
+        private static readonly byte[]
+            ScenarioListLoadPatched =
+        {
+            0xE9, 0xBD, 0x5C, 0xBD, 0x01, 0x90
         };
 
 
-        private static readonly short[]
-            LooseFilesPatchedPattern =
+        private const int ScenarioDescriptionsPatchOffset =
+            0x5C7B5;
+
+        private static readonly byte[]
+            ScenarioDescriptionsOriginal =
         {
-            0xC6, 0x07, 0x01,
+            0x4C, 0x8D, 0x05, 0xD4, 0x2C, 0x12, 0x01
+        };
 
-            0xC6, 0x06, 0x00,
-
-            0x41, 0xC6, 0x06, 0x01,
-
-            0x80, 0x3F, 0x00,
-
-            0x0F, 0x85,
-            -1, -1, -1, -1
+        private static readonly byte[]
+            ScenarioDescriptionsPatched =
+        {
+            0xE8, 0xAB, 0x5C, 0xBD, 0x01, 0x90, 0x90
         };
 
 
-        // Index of the immediate TRUE/FALSE value
-        // inside LooseFilesUnpatchedPattern.
-        private const int
-            LooseFilesValueOffset =
-                5;
+        private const int LocalizationSetupPatchOffset =
+            0x1ED180;
+
+        private static readonly byte[]
+            LocalizationSetupOriginal =
+        {
+            0x88, 0x54, 0x24, 0x10,
+            0x48, 0x89, 0x4C, 0x24, 0x08
+        };
+
+        private static readonly byte[]
+            LocalizationSetupPatched =
+        {
+            0xE9, 0xF9, 0x52, 0xA4, 0x01,
+            0x90, 0x90, 0x90, 0x90
+        };
+
+
+        private const int StringTableSelectionPatchOffset =
+            0x1ED2CA;
+
+        private static readonly byte[]
+            StringTableSelectionOriginal =
+        {
+            0x8B, 0x15, 0xDC, 0x50, 0x2C, 0x01
+        };
+
+        private static readonly byte[]
+            StringTableSelectionPatched =
+        {
+            0xE8, 0x11, 0x52, 0xA4, 0x01, 0x90
+        };
+
+
+        // =========================================================
+        // EMBEDDED MODULAR PAYLOAD
+        //
+        // Resources\EnsembleModularPatchPayload.bin
+        //
+        // This is the exact 0x4A00-byte extension extracted from the
+        // tested working modular xgameFinal.exe. It is embedded into
+        // Ensemble.exe by the project file and copied into the newly
+        // extended .reloc section.
+        // =========================================================
+
+        private static readonly Lazy<byte[]>
+            ModularPayload =
+                new Lazy<byte[]>(
+                    LoadModularPayload);
 
 
         // =========================================================
@@ -164,567 +255,712 @@ namespace Ensemble.Services
             }
 
 
-            byte[] data =
+            byte[] input =
                 File.ReadAllBytes(
                     exePath);
 
 
             string sha1Before =
                 ComputeSha1(
-                    data);
+                    input);
 
 
             // =====================================================
-            // Apply all supported patch stages IN MEMORY first.
+            // Already on the exact current modular build.
             // =====================================================
 
-            PatchStageResult
-                eraResult =
-                    ApplyEraSignaturePatch(
-                        data);
-
-
-            PatchStageResult
-                looseResult =
-                    ApplyLooseFilesPatch(
-                        data);
-
-
-            bool wasModified =
-                eraResult.WasModified ||
-                looseResult.WasModified;
-
-
-            string backupPath =
-                string.Empty;
-
-
-            // =====================================================
-            // Only touch disk if at least one stage changed.
-            // =====================================================
-
-            if (wasModified)
+            if (input.Length ==
+                ModularFileSize)
             {
-                backupPath =
-                    CreateBackup(
-                        exePath);
-
-
-                string tempPath =
-                    exePath +
-                    ".ensemble.tmp";
-
-
-                try
-                {
-                    File.WriteAllBytes(
-                        tempPath,
-                        data);
-
-
-                    // Re-read temporary output before replacing EXE.
-                    byte[] verificationData =
-                        File.ReadAllBytes(
-                            tempPath);
-
-
-                    VerifyCompletePatch(
-                        verificationData);
-
-
-                    File.Copy(
-                        tempPath,
-                        exePath,
-                        overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(
-                            tempPath))
-                    {
-                        File.Delete(
-                            tempPath);
-                    }
-                }
-            }
-            else
-            {
-                // Even when no modifications were necessary,
-                // prove the existing executable has every stage.
                 VerifyCompletePatch(
-                    data);
+                    input);
+
+
+                return BuildResult(
+                    wasModified: false,
+                    backupPath: string.Empty,
+                    sha1Before: sha1Before,
+                    sha1After: sha1Before,
+                    eraPatchChanged: false,
+                    loosePatchChanged: false,
+                    modularPatchChanged: false);
             }
+
+
+            // =====================================================
+            // Stock or previous two-stage Ensemble patch.
+            //
+            // Normalize only the two historical byte patches and
+            // require the result to hash EXACTLY as the supported
+            // retail executable. This prevents us from injecting
+            // absolute-address hooks into an unknown game build.
+            // =====================================================
+
+            PatchState inputState =
+                InspectLegacyPatchState(
+                    input);
+
+
+            byte[] normalizedStock =
+                NormalizeSupportedBase(
+                    input,
+                    inputState);
+
+
+            // =====================================================
+            // Build the deterministic current modular executable.
+            // =====================================================
+
+            byte[] output =
+                BuildModularImage(
+                    normalizedStock);
+
+
+            VerifyCompletePatch(
+                output);
 
 
             string sha1After =
                 ComputeSha1(
-                    data);
+                    output);
 
 
-            return new HaloWarsExePatchResult
+            // =====================================================
+            // Preserve a true stock backup.
+            //
+            // Even when the input was the old two-stage patch,
+            // normalizedStock is byte-for-byte retail stock.
+            // =====================================================
+
+            string backupPath =
+                CreateUntouchedBackup(
+                    exePath,
+                    normalizedStock);
+
+
+            string tempPath =
+                exePath +
+                ".ensemble.tmp";
+
+
+            try
             {
-                Success =
-                    true,
+                File.WriteAllBytes(
+                    tempPath,
+                    output);
 
-                AlreadyPatched =
-                    !wasModified,
 
-                WasModified =
-                    wasModified,
+                byte[] verification =
+                    File.ReadAllBytes(
+                        tempPath);
 
-                BackupPath =
-                    backupPath,
 
-                PatchOffset =
-                    eraResult.PatchOffset,
+                VerifyCompletePatch(
+                    verification);
 
-                EraSignaturePatchOffset =
-                    eraResult.PatchOffset,
 
-                LooseFilesPatchOffset =
-                    looseResult.PatchOffset,
+                File.Copy(
+                    tempPath,
+                    exePath,
+                    overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(
+                        tempPath))
+                {
+                    File.Delete(
+                        tempPath);
+                }
+            }
 
+
+            return BuildResult(
+                wasModified: true,
+                backupPath: backupPath,
+                sha1Before: sha1Before,
+                sha1After: sha1After,
+                eraPatchChanged:
+                    !inputState.EraSignatureBypassEnabled,
+                loosePatchChanged:
+                    !inputState.LooseFilesEnabled,
+                modularPatchChanged: true);
+        }
+
+
+        // =========================================================
+        // BUILD MODULAR IMAGE
+        // =========================================================
+
+        private static byte[] BuildModularImage(
+            byte[] stock)
+        {
+            if (stock.Length !=
+                StockFileSize)
+            {
+                throw new InvalidDataException(
+                    "The normalized Halo Wars executable has " +
+                    "an unexpected file size.");
+            }
+
+
+            if (!string.Equals(
+                    ComputeSha1(stock),
+                    StockSha1,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The normalized Halo Wars executable does not " +
+                    "match the supported retail build.");
+            }
+
+
+            byte[] data =
+                new byte[
+                    ModularFileSize];
+
+
+            Buffer.BlockCopy(
+                stock,
+                0,
+                data,
+                0,
+                stock.Length);
+
+
+            byte[] payload =
+                ModularPayload.Value;
+
+
+            if (payload.Length !=
+                ModularPayloadSize)
+            {
+                throw new InvalidDataException(
+                    "The embedded Ensemble modular payload has " +
+                    "an unexpected size.");
+            }
+
+
+            Buffer.BlockCopy(
+                payload,
+                0,
+                data,
+                StockFileSize,
+                payload.Length);
+
+
+            // -----------------------------------------------------
+            // PE image / final-section extension.
+            // -----------------------------------------------------
+
+            WriteUInt32(
+                data,
+                AddressOfEntryPointOffset,
+                ModularEntryPointRva);
+
+
+            WriteUInt32(
+                data,
+                SizeOfImageOffset,
+                ModularSizeOfImage);
+
+
+            WriteUInt32(
+                data,
+                RelocVirtualSizeOffset,
+                ModularRelocVirtualSize);
+
+
+            WriteUInt32(
+                data,
+                RelocRawSizeOffset,
+                ModularRelocRawSize);
+
+
+            WriteUInt32(
+                data,
+                RelocCharacteristicsOffset,
+                ModularRelocCharacteristics);
+
+
+            // -----------------------------------------------------
+            // Existing support patches.
+            // -----------------------------------------------------
+
+            WriteBytes(
+                data,
+                EraSignaturePatchOffset,
+                EraSignaturePatched);
+
+
+            data[
+                LooseFilesPatchOffset] =
+                    LooseFilesPatched;
+
+
+            // -----------------------------------------------------
+            // Modular ENSMAP1 discovery / registration /
+            // localization hooks.
+            // -----------------------------------------------------
+
+            WriteBytes(
+                data,
+                ScenarioListLoadPatchOffset,
+                ScenarioListLoadPatched);
+
+
+            WriteBytes(
+                data,
+                ScenarioDescriptionsPatchOffset,
+                ScenarioDescriptionsPatched);
+
+
+            WriteBytes(
+                data,
+                LocalizationSetupPatchOffset,
+                LocalizationSetupPatched);
+
+
+            WriteBytes(
+                data,
+                StringTableSelectionPatchOffset,
+                StringTableSelectionPatched);
+
+
+            return data;
+        }
+
+
+        // =========================================================
+        // LEGACY INPUT NORMALIZATION
+        // =========================================================
+
+        private static PatchState InspectLegacyPatchState(
+            byte[] data)
+        {
+            if (data.Length !=
+                StockFileSize)
+            {
+                throw new InvalidDataException(
+                    "This xgameFinal.exe is not a supported Halo Wars " +
+                    "Definitive Edition build.\n\n" +
+
+                    $"Expected stock/legacy size: 0x{StockFileSize:X}\n" +
+                    $"Actual size: 0x{data.Length:X}\n\n" +
+
+                    "If Halo Wars has been updated, Ensemble's modular " +
+                    "patch offsets must be revalidated before patching.");
+            }
+
+
+            bool eraOriginal =
+                MatchBytes(
+                    data,
+                    EraSignaturePatchOffset,
+                    EraSignatureOriginal);
+
+
+            bool eraPatched =
+                MatchBytes(
+                    data,
+                    EraSignaturePatchOffset,
+                    EraSignaturePatched);
+
+
+            if (!eraOriginal &&
+                !eraPatched)
+            {
+                throw new InvalidDataException(
+                    "The ERA signature patch location does not match " +
+                    "either the retail or previous Ensemble state.");
+            }
+
+
+            byte looseValue =
+                data[
+                    LooseFilesPatchOffset];
+
+
+            if (looseValue !=
+                    LooseFilesOriginal &&
+                looseValue !=
+                    LooseFilesPatched)
+            {
+                throw new InvalidDataException(
+                    "The loose-file patch location does not match " +
+                    "either the retail or previous Ensemble state.");
+            }
+
+
+            // The newer modular hook sites must still be retail.
+            RequireBytes(
+                data,
+                ScenarioListLoadPatchOffset,
+                ScenarioListLoadOriginal,
+                "ScenarioList::load hook");
+
+
+            RequireBytes(
+                data,
+                ScenarioDescriptionsPatchOffset,
+                ScenarioDescriptionsOriginal,
+                "ScenarioDescriptions selection hook");
+
+
+            RequireBytes(
+                data,
+                LocalizationSetupPatchOffset,
+                LocalizationSetupOriginal,
+                "localization setup hook");
+
+
+            RequireBytes(
+                data,
+                StringTableSelectionPatchOffset,
+                StringTableSelectionOriginal,
+                "StringTable selection hook");
+
+
+            return new PatchState
+            {
                 EraSignatureBypassEnabled =
-                    true,
+                    eraPatched,
 
                 LooseFilesEnabled =
-                    true,
-
-                EraSignaturePatchChanged =
-                    eraResult.WasModified,
-
-                LooseFilesPatchChanged =
-                    looseResult.WasModified,
-
-                Sha1Before =
-                    sha1Before,
-
-                Sha1After =
-                    sha1After
+                    looseValue ==
+                    LooseFilesPatched
             };
         }
 
 
-        // =========================================================
-        // ERA SIGNATURE PATCH
-        // =========================================================
-
-        private static PatchStageResult
-            ApplyEraSignaturePatch(
-                byte[] data)
+        private static byte[] NormalizeSupportedBase(
+            byte[] input,
+            PatchState state)
         {
-            List<int> unpatched =
-                FindPattern(
-                    data,
-                    EraUnpatchedPattern);
+            byte[] normalized =
+                input.ToArray();
 
 
-            List<int> patched =
-                FindPattern(
-                    data,
-                    EraPatchedPattern);
-
-
-            // Already done.
-            if (patched.Count ==
-                    1 &&
-                unpatched.Count ==
-                    0)
+            if (state.EraSignatureBypassEnabled)
             {
-                return new PatchStageResult
-                {
-                    WasModified =
-                        false,
-
-                    PatchOffset =
-                        patched[0] +
-                        EraModJumpOffset
-                };
+                WriteBytes(
+                    normalized,
+                    EraSignaturePatchOffset,
+                    EraSignatureOriginal);
             }
 
 
-            if (unpatched.Count !=
-                    1 ||
-                patched.Count !=
-                    0)
+            if (state.LooseFilesEnabled)
+            {
+                normalized[
+                    LooseFilesPatchOffset] =
+                        LooseFilesOriginal;
+            }
+
+
+            string normalizedSha1 =
+                ComputeSha1(
+                    normalized);
+
+
+            if (!string.Equals(
+                    normalizedSha1,
+                    StockSha1,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException(
-                    "Ensemble could not uniquely identify the " +
-                    "Halo Wars ERA signature-check patch point.\n\n" +
+                    "This xgameFinal.exe does not normalize to the " +
+                    "supported retail Halo Wars DE executable.\n\n" +
 
-                    $"Unpatched matches: {unpatched.Count}\n" +
-                    $"Patched matches:   {patched.Count}");
+                    $"Expected retail SHA1:\n{StockSha1}\n\n" +
+
+                    $"Normalized SHA1:\n{normalizedSha1}\n\n" +
+
+                    "Ensemble will not install absolute-address modular " +
+                    "hooks into an unknown or additionally modified EXE.");
             }
 
 
-            int patternOffset =
-                unpatched[0];
+            // Explicit PE-header sanity checks.
+            RequireUInt32(
+                normalized,
+                AddressOfEntryPointOffset,
+                StockEntryPointRva,
+                "stock AddressOfEntryPoint");
 
 
-            // -----------------------------------------------------
-            // Locate later successful execution path.
-            // -----------------------------------------------------
-
-            int nextJumpIndex =
-                checked(
-                    patternOffset +
-                    EraNextJumpOffset);
+            RequireUInt32(
+                normalized,
+                SizeOfImageOffset,
+                StockSizeOfImage,
+                "stock SizeOfImage");
 
 
-            EnsureRange(
-                data,
-                nextJumpIndex,
-                4);
+            RequireUInt32(
+                normalized,
+                RelocVirtualSizeOffset,
+                StockRelocVirtualSize,
+                "stock .reloc VirtualSize");
 
 
-            int nextJumpRelative =
-                BinaryPrimitives
-                    .ReadInt32LittleEndian(
-                        data.AsSpan(
-                            nextJumpIndex,
-                            4));
+            RequireUInt32(
+                normalized,
+                RelocRawSizeOffset,
+                StockRelocRawSize,
+                "stock .reloc SizeOfRawData");
 
 
-            int goodJumpBase =
-                checked(
-                    nextJumpIndex +
-                    4 +
-                    nextJumpRelative);
+            RequireUInt32(
+                normalized,
+                RelocCharacteristicsOffset,
+                StockRelocCharacteristics,
+                "stock .reloc Characteristics");
 
 
-            EnsureRange(
-                data,
-                goodJumpBase,
-                2);
-
-
-            // PhxGUI expects:
-            //
-            // 75 xx
-            //
-            // JNZ short
-            if (data[
-                    goodJumpBase] !=
-                0x75)
-            {
-                throw new InvalidDataException(
-                    "Ensemble found the expected ERA patch " +
-                    "pattern but could not locate its " +
-                    "successful execution branch.");
-            }
-
-
-            int shortJumpRelative =
-                unchecked(
-                    (sbyte)data[
-                        goodJumpBase +
-                        1]);
-
-
-            int goodCodeIndex =
-                checked(
-                    goodJumpBase +
-                    2 +
-                    shortJumpRelative);
-
-
-            int patchOffset =
-                checked(
-                    patternOffset +
-                    EraModJumpOffset);
-
-
-            int addressAfterNewJump =
-                checked(
-                    patchOffset +
-                    5);
-
-
-            int newRelativeJump =
-                checked(
-                    goodCodeIndex -
-                    addressAfterNewJump);
-
-
-            // Replace:
-            //
-            // 0F 83 xx xx xx xx
-            //
-            // with:
-            //
-            // E9 xx xx xx xx
-            //
-            // Last original byte is intentionally left alone.
-
-            data[
-                patchOffset] =
-                    0xE9;
-
-
-            BinaryPrimitives
-                .WriteInt32LittleEndian(
-                    data.AsSpan(
-                        patchOffset +
-                        1,
-                        4),
-                    newRelativeJump);
-
-
-            List<int> verification =
-                FindPattern(
-                    data,
-                    EraPatchedPattern);
-
-
-            if (verification.Count !=
-                1)
-            {
-                throw new InvalidDataException(
-                    "ERA signature bypass internal " +
-                    "verification failed.");
-            }
-
-
-            return new PatchStageResult
-            {
-                WasModified =
-                    true,
-
-                PatchOffset =
-                    patchOffset
-            };
+            return normalized;
         }
 
 
         // =========================================================
-        // LOOSE FILE PATCH
-        // =========================================================
-
-        private static PatchStageResult
-            ApplyLooseFilesPatch(
-                byte[] data)
-        {
-            List<int> unpatched =
-                FindPattern(
-                    data,
-                    LooseFilesUnpatchedPattern);
-
-
-            List<int> patched =
-                FindPattern(
-                    data,
-                    LooseFilesPatchedPattern);
-
-
-            // Already done.
-            if (patched.Count ==
-                    1 &&
-                unpatched.Count ==
-                    0)
-            {
-                return new PatchStageResult
-                {
-                    WasModified =
-                        false,
-
-                    PatchOffset =
-                        patched[0] +
-                        LooseFilesValueOffset
-                };
-            }
-
-
-            if (unpatched.Count !=
-                    1 ||
-                patched.Count !=
-                    0)
-            {
-                throw new InvalidDataException(
-                    "Ensemble could not uniquely identify the " +
-                    "Halo Wars loose-file patch point.\n\n" +
-
-                    $"Unpatched matches: {unpatched.Count}\n" +
-                    $"Patched matches:   {patched.Count}");
-            }
-
-
-            int patchOffset =
-                checked(
-                    unpatched[0] +
-                    LooseFilesValueOffset);
-
-
-            EnsureRange(
-                data,
-                patchOffset,
-                1);
-
-
-            if (data[
-                    patchOffset] !=
-                0x01)
-            {
-                throw new InvalidDataException(
-                    "Loose-file patch immediate value " +
-                    "was not the expected TRUE byte.");
-            }
-
-
-            // disableLooseFilesOut:
-            //
-            // TRUE → FALSE
-            data[
-                patchOffset] =
-                    0x00;
-
-
-            List<int> verification =
-                FindPattern(
-                    data,
-                    LooseFilesPatchedPattern);
-
-
-            if (verification.Count !=
-                1)
-            {
-                throw new InvalidDataException(
-                    "Loose-file patch internal " +
-                    "verification failed.");
-            }
-
-
-            return new PatchStageResult
-            {
-                WasModified =
-                    true,
-
-                PatchOffset =
-                    patchOffset
-            };
-        }
-
-
-        // =========================================================
-        // COMPLETE PATCH VERIFICATION
+        // COMPLETE CURRENT PATCH VERIFICATION
         // =========================================================
 
         private static void VerifyCompletePatch(
             byte[] data)
         {
-            List<int> era =
-                FindPattern(
-                    data,
-                    EraPatchedPattern);
-
-
-            if (era.Count !=
-                1)
+            if (data.Length !=
+                ModularFileSize)
             {
                 throw new InvalidDataException(
-                    "Ensemble verification failed: " +
-                    "ERA signature bypass is missing.");
+                    "Ensemble modular patch verification failed: " +
+                    "unexpected xgameFinal.exe size.");
             }
 
 
-            List<int> loose =
-                FindPattern(
-                    data,
-                    LooseFilesPatchedPattern);
+            RequireUInt32(
+                data,
+                AddressOfEntryPointOffset,
+                ModularEntryPointRva,
+                "modular AddressOfEntryPoint");
 
 
-            if (loose.Count !=
-                1)
+            RequireUInt32(
+                data,
+                SizeOfImageOffset,
+                ModularSizeOfImage,
+                "modular SizeOfImage");
+
+
+            RequireUInt32(
+                data,
+                RelocVirtualSizeOffset,
+                ModularRelocVirtualSize,
+                "modular .reloc VirtualSize");
+
+
+            RequireUInt32(
+                data,
+                RelocRawSizeOffset,
+                ModularRelocRawSize,
+                "modular .reloc SizeOfRawData");
+
+
+            RequireUInt32(
+                data,
+                RelocCharacteristicsOffset,
+                ModularRelocCharacteristics,
+                "modular .reloc Characteristics");
+
+
+            RequireBytes(
+                data,
+                EraSignaturePatchOffset,
+                EraSignaturePatched,
+                "ERA signature bypass");
+
+
+            if (data[
+                    LooseFilesPatchOffset] !=
+                LooseFilesPatched)
             {
                 throw new InvalidDataException(
-                    "Ensemble verification failed: " +
+                    "Ensemble modular patch verification failed: " +
                     "loose-file support is missing.");
             }
+
+
+            RequireBytes(
+                data,
+                ScenarioListLoadPatchOffset,
+                ScenarioListLoadPatched,
+                "ScenarioList::load modular hook");
+
+
+            RequireBytes(
+                data,
+                ScenarioDescriptionsPatchOffset,
+                ScenarioDescriptionsPatched,
+                "ScenarioDescriptions modular hook");
+
+
+            RequireBytes(
+                data,
+                LocalizationSetupPatchOffset,
+                LocalizationSetupPatched,
+                "localization setup modular hook");
+
+
+            RequireBytes(
+                data,
+                StringTableSelectionPatchOffset,
+                StringTableSelectionPatched,
+                "StringTable selection modular hook");
+
+
+            byte[] payload =
+                ModularPayload.Value;
+
+
+            if (!data
+                    .AsSpan(
+                        StockFileSize,
+                        ModularPayloadSize)
+                    .SequenceEqual(
+                        payload))
+            {
+                throw new InvalidDataException(
+                    "Ensemble modular patch verification failed: " +
+                    "embedded modular payload does not match.");
+            }
+
+
+            string sha1 =
+                ComputeSha1(
+                    data);
+
+
+            if (!string.Equals(
+                    sha1,
+                    ModularSha1,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "Ensemble modular patch verification failed: " +
+                    "final executable hash is not the tested modular build.\n\n" +
+
+                    $"Expected:\n{ModularSha1}\n\n" +
+
+                    $"Actual:\n{sha1}");
+            }
         }
 
 
         // =========================================================
-        // PATTERN SCANNER
+        // EMBEDDED PAYLOAD
         // =========================================================
 
-        private static List<int> FindPattern(
-            byte[] data,
-            short[] pattern)
+        private static byte[] LoadModularPayload()
         {
-            List<int> matches =
-                new();
+            Assembly assembly =
+                typeof(HaloWarsExePatchService)
+                    .Assembly;
 
 
-            if (pattern.Length ==
-                0)
+            string? resourceName =
+                assembly
+                    .GetManifestResourceNames()
+                    .FirstOrDefault(
+                        name =>
+                            name.EndsWith(
+                                ".EnsembleModularPatchPayload.bin",
+                                StringComparison.Ordinal));
+
+
+            if (resourceName ==
+                null)
             {
-                return matches;
+                throw new InvalidDataException(
+                    "Ensemble's embedded modular EXE payload " +
+                    "could not be found.");
             }
 
 
-            int maximum =
-                data.Length -
-                pattern.Length;
+            using Stream stream =
+                assembly.GetManifestResourceStream(
+                    resourceName)
+                ?? throw new InvalidDataException(
+                    "Unable to open Ensemble's embedded modular EXE payload.");
 
 
-            for (int i = 0;
-                 i <= maximum;
-                 i++)
+            if (stream.Length !=
+                ModularPayloadSize)
             {
-                // Cheap early rejection when first byte
-                // isn't a wildcard.
-                if (pattern[0] >=
-                        0 &&
-                    data[i] !=
-                        (byte)pattern[0])
-                {
-                    continue;
-                }
-
-
-                bool match =
-                    true;
-
-
-                for (int p = 0;
-                     p < pattern.Length;
-                     p++)
-                {
-                    short expected =
-                        pattern[p];
-
-
-                    if (expected >=
-                            0 &&
-                        data[
-                            i + p] !=
-                            (byte)expected)
-                    {
-                        match =
-                            false;
-
-                        break;
-                    }
-                }
-
-
-                if (match)
-                {
-                    matches.Add(
-                        i);
-                }
+                throw new InvalidDataException(
+                    "Ensemble's embedded modular EXE payload has " +
+                    "the wrong size.");
             }
 
 
-            return matches;
+            byte[] payload =
+                new byte[
+                    ModularPayloadSize];
+
+
+            int total =
+                0;
+
+
+            while (total <
+                   payload.Length)
+            {
+                int read =
+                    stream.Read(
+                        payload,
+                        total,
+                        payload.Length -
+                        total);
+
+
+                if (read <=
+                    0)
+                {
+                    throw new EndOfStreamException(
+                        "Unexpected end of embedded modular payload.");
+                }
+
+
+                total +=
+                    read;
+            }
+
+
+            string payloadSha1 =
+                ComputeSha1(
+                    payload);
+
+
+            if (!string.Equals(
+                    payloadSha1,
+                    PayloadSha1,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "Ensemble's embedded modular EXE payload failed " +
+                    "its integrity check.");
+            }
+
+
+            return payload;
         }
 
 
         // =========================================================
-        // BACKUP
+        // TRUE STOCK BACKUP
         // =========================================================
 
-        private static string CreateBackup(
-            string exePath)
+        private static string CreateUntouchedBackup(
+            string exePath,
+            byte[] normalizedStock)
         {
             string directory =
                 Path.GetDirectoryName(
@@ -751,38 +987,216 @@ namespace Ensemble.Services
                     extension);
 
 
-            // -----------------------------------------------------
-            // Preserve the first known-good stock backup forever.
-            // -----------------------------------------------------
-
-            if (!File.Exists(
+            if (File.Exists(
                     backupPath))
             {
-                File.Copy(
-                    exePath,
-                    backupPath,
-                    overwrite: false);
-
-
                 return backupPath;
             }
 
 
-            // -----------------------------------------------------
-            // If an untouched backup already exists, do NOT create
-            // endless timestamped backups simply because an older
-            // Ensemble patch is being upgraded.
-            //
-            // The original untouched EXE is already safe.
-            // -----------------------------------------------------
+            if (!string.Equals(
+                    ComputeSha1(normalizedStock),
+                    StockSha1,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "Ensemble refused to create an untouched backup " +
+                    "because the normalized image is not stock.");
+            }
+
+
+            File.WriteAllBytes(
+                backupPath,
+                normalizedStock);
+
 
             return backupPath;
         }
 
 
         // =========================================================
-        // HASH
+        // RESULT
         // =========================================================
+
+        private static HaloWarsExePatchResult BuildResult(
+            bool wasModified,
+            string backupPath,
+            string sha1Before,
+            string sha1After,
+            bool eraPatchChanged,
+            bool loosePatchChanged,
+            bool modularPatchChanged)
+        {
+            return new HaloWarsExePatchResult
+            {
+                Success =
+                    true,
+
+                AlreadyPatched =
+                    !wasModified,
+
+                WasModified =
+                    wasModified,
+
+                BackupPath =
+                    backupPath,
+
+                // Compatibility with existing MainWindow.
+                PatchOffset =
+                    EraSignaturePatchOffset,
+
+                EraSignaturePatchOffset =
+                    EraSignaturePatchOffset,
+
+                LooseFilesPatchOffset =
+                    LooseFilesPatchOffset,
+
+                EraSignatureBypassEnabled =
+                    true,
+
+                LooseFilesEnabled =
+                    true,
+
+                EraSignaturePatchChanged =
+                    eraPatchChanged,
+
+                LooseFilesPatchChanged =
+                    loosePatchChanged,
+
+                ModularMapSupportEnabled =
+                    true,
+
+                ModularPatchChanged =
+                    modularPatchChanged,
+
+                ModularEntryPointRva =
+                    ModularEntryPointRva,
+
+                ModularPayloadFileOffset =
+                    StockFileSize,
+
+                Sha1Before =
+                    sha1Before,
+
+                Sha1After =
+                    sha1After
+            };
+        }
+
+
+        // =========================================================
+        // BINARY HELPERS
+        // =========================================================
+
+        private static bool MatchBytes(
+            byte[] data,
+            int offset,
+            byte[] expected)
+        {
+            if (offset <
+                    0 ||
+                offset >
+                    data.Length -
+                    expected.Length)
+            {
+                return false;
+            }
+
+
+            return data
+                .AsSpan(
+                    offset,
+                    expected.Length)
+                .SequenceEqual(
+                    expected);
+        }
+
+
+        private static void RequireBytes(
+            byte[] data,
+            int offset,
+            byte[] expected,
+            string description)
+        {
+            if (!MatchBytes(
+                    data,
+                    offset,
+                    expected))
+            {
+                throw new InvalidDataException(
+                    $"Halo Wars EXE validation failed at {description}.\n\n" +
+                    $"File offset: 0x{offset:X}");
+            }
+        }
+
+
+        private static void WriteBytes(
+            byte[] data,
+            int offset,
+            byte[] value)
+        {
+            EnsureRange(
+                data,
+                offset,
+                value.Length);
+
+
+            value.CopyTo(
+                data,
+                offset);
+        }
+
+
+        private static void WriteUInt32(
+            byte[] data,
+            int offset,
+            uint value)
+        {
+            EnsureRange(
+                data,
+                offset,
+                4);
+
+
+            BinaryPrimitives
+                .WriteUInt32LittleEndian(
+                    data.AsSpan(
+                        offset,
+                        4),
+                    value);
+        }
+
+
+        private static void RequireUInt32(
+            byte[] data,
+            int offset,
+            uint expected,
+            string description)
+        {
+            EnsureRange(
+                data,
+                offset,
+                4);
+
+
+            uint actual =
+                BinaryPrimitives
+                    .ReadUInt32LittleEndian(
+                        data.AsSpan(
+                            offset,
+                            4));
+
+
+            if (actual !=
+                expected)
+            {
+                throw new InvalidDataException(
+                    $"Halo Wars EXE validation failed at {description}.\n\n" +
+                    $"Expected: 0x{expected:X8}\n" +
+                    $"Actual:   0x{actual:X8}");
+            }
+        }
+
 
         private static string ComputeSha1(
             byte[] data)
@@ -796,10 +1210,6 @@ namespace Ensemble.Services
                 hash);
         }
 
-
-        // =========================================================
-        // RANGE CHECK
-        // =========================================================
 
         private static void EnsureRange(
             byte[] data,
@@ -820,25 +1230,20 @@ namespace Ensemble.Services
         }
 
 
-        // =========================================================
-        // INTERNAL PATCH RESULT
-        // =========================================================
-
-        private sealed class PatchStageResult
+        private sealed class PatchState
         {
-            public bool WasModified
+            public bool EraSignatureBypassEnabled
             {
                 get;
                 init;
             }
 
 
-            public int PatchOffset
+            public bool LooseFilesEnabled
             {
                 get;
                 init;
-            } =
-                -1;
+            }
         }
     }
 
@@ -856,8 +1261,6 @@ namespace Ensemble.Services
         }
 
 
-        // True only when every supported Ensemble patch
-        // was already installed before this run.
         public bool AlreadyPatched
         {
             get;
@@ -880,8 +1283,7 @@ namespace Ensemble.Services
             string.Empty;
 
 
-        // Kept for compatibility with the existing MainWindow.
-        // Represents the ERA-signature patch location.
+        // Compatibility with existing MainWindow.
         public int PatchOffset
         {
             get;
@@ -925,6 +1327,35 @@ namespace Ensemble.Services
 
 
         public bool LooseFilesPatchChanged
+        {
+            get;
+            init;
+        }
+
+
+        // Current modular ENSMAP1 support.
+        public bool ModularMapSupportEnabled
+        {
+            get;
+            init;
+        }
+
+
+        public bool ModularPatchChanged
+        {
+            get;
+            init;
+        }
+
+
+        public uint ModularEntryPointRva
+        {
+            get;
+            init;
+        }
+
+
+        public int ModularPayloadFileOffset
         {
             get;
             init;

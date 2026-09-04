@@ -3706,7 +3706,13 @@ namespace Ensemble
                     Filter =
                         "Halo Wars Executable (xgameFinal.exe)|xgameFinal.exe|" +
                         "Executable Files (*.exe)|*.exe|" +
-                        "All Files (*.*)|*.*"
+                        "All Files (*.*)|*.*",
+
+                    CheckFileExists =
+                        true,
+
+                    Multiselect =
+                        false
                 };
 
 
@@ -3721,22 +3727,29 @@ namespace Ensemble
                 MessageBox.Show(
                     this,
 
-                    "Ensemble will apply its Halo Wars modding patches.\n\n" +
+                    "Ensemble will install its full Halo Wars modular " +
+                    "map patch.\n\n" +
 
-                    "Supported patch stages:\n" +
+                    "Supported features:\n" +
                     "• Modified ERA archive support\n" +
-                    "• Loose-file support\n\n" +
+                    "• Loose-file support\n" +
+                    "• Self-contained ENSMAP1 map manifests\n" +
+                    "• Automatic custom-map discovery\n" +
+                    "• Dynamic map registration\n" +
+                    "• Dynamic custom-map localization\n\n" +
 
-                    "Existing Ensemble patches will be detected and " +
-                    "left unchanged. Any missing supported patches will " +
-                    "be applied automatically.\n\n" +
+                    "Stock executables and older Ensemble-patched " +
+                    "executables are supported.\n\n" +
 
-                    "An untouched backup of the executable will be " +
-                    "preserved.\n\n" +
+                    "If the current modular patch is already installed, " +
+                    "the executable will only be verified and will not " +
+                    "be rewritten.\n\n" +
+
+                    "An untouched stock backup will be preserved.\n\n" +
 
                     "Continue?",
 
-                    "Apply Ensemble Modding Patch",
+                    "Install Ensemble Modular Patch",
 
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
@@ -3752,7 +3765,7 @@ namespace Ensemble
             try
             {
                 StatusText.Text =
-                    "Checking Halo Wars modding patches...";
+                    "Checking Halo Wars modular patch...";
 
 
                 HaloWarsExePatchResult result =
@@ -3772,17 +3785,24 @@ namespace Ensemble
                         : "Already present";
 
 
+                string modularStatus =
+                    result.ModularPatchChanged
+                        ? "Installed / upgraded now"
+                        : "Already present";
+
+
                 string overallStatus =
                     result.WasModified
-                        ? "Ensemble updated the executable."
-                        : "The executable already contains all supported Ensemble patches.";
+                        ? "Ensemble updated the Halo Wars executable."
+                        : "The executable already contains the current " +
+                          "Ensemble modular patch.";
 
 
                 string backupText =
                     string.IsNullOrWhiteSpace(
                         result.BackupPath)
                         ? "Existing untouched backup preserved."
-                        : $"Backup:\n{result.BackupPath}";
+                        : $"Untouched backup:\n{result.BackupPath}";
 
 
                 MessageBox.Show(
@@ -3798,6 +3818,12 @@ namespace Ensemble
                     $"{looseStatus}\n" +
                     $"Offset: 0x{result.LooseFilesPatchOffset:X}\n\n" +
 
+                    "ERA-only modular map support:\n" +
+                    $"{modularStatus}\n" +
+                    $"Entry point RVA: 0x{result.ModularEntryPointRva:X8}\n" +
+                    $"Payload file offset: " +
+                    $"0x{result.ModularPayloadFileOffset:X}\n\n" +
+
                     $"{backupText}\n\n" +
 
                     "SHA1 Before:\n" +
@@ -3806,7 +3832,7 @@ namespace Ensemble
                     "SHA1 After:\n" +
                     $"{result.Sha1After}",
 
-                    "Ensemble Modding Patch",
+                    "Ensemble Modular Patch",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -3814,8 +3840,8 @@ namespace Ensemble
 
                 StatusText.Text =
                     result.WasModified
-                        ? "Halo Wars EXE updated with Ensemble modding patches."
-                        : "Halo Wars EXE is already fully Ensemble-patched.";
+                        ? "Halo Wars updated with Ensemble ERA-only modular support."
+                        : "Halo Wars already has the current Ensemble modular patch.";
             }
             catch (Exception ex)
             {
@@ -3830,7 +3856,7 @@ namespace Ensemble
 
 
                 StatusText.Text =
-                    "Halo Wars executable patch failed.";
+                    "Halo Wars modular patch failed.";
             }
         }
 
