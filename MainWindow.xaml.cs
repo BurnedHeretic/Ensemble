@@ -3861,8 +3861,8 @@ namespace Ensemble
         }
 
         private void RegisterCustomMap_Click(
-            object sender,
-            RoutedEventArgs e)
+    object sender,
+    RoutedEventArgs e)
         {
             if (_currentArchive ==
                     null ||
@@ -3874,7 +3874,7 @@ namespace Ensemble
 
 
             // =========================================================
-            // Save current map edits before installation.
+            // SAVE CURRENT EDITS FIRST
             // =========================================================
 
             if (_isDirty)
@@ -3884,9 +3884,9 @@ namespace Ensemble
                         this,
 
                         "The current map contains unsaved changes.\n\n" +
-                        "Save them before installing the custom map?",
+                        "Save them before exporting the custom map?",
 
-                        "Install Custom Map",
+                        "Export Custom Map",
 
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Question);
@@ -3909,48 +3909,148 @@ namespace Ensemble
             try
             {
                 // =========================================================
-                // Determine ScenarioDescriptions registration path.
+                // SOURCE ERA
                 // =========================================================
 
-                string registrationFile =
-                    ScenarioDescriptionsService
-                        .BuildScenarioRegistrationPath(
-                            _currentScenarioChunk);
+                string sourceEraPath =
+                    _currentArchive.FilePath;
 
 
-                string scenarioBasename =
-                    Path.GetFileNameWithoutExtension(
-                        registrationFile);
+                if (!File.Exists(
+                        sourceEraPath))
+                {
+                    throw new FileNotFoundException(
+                        "The current ERA could not be found.",
+                        sourceEraPath);
+                }
 
+
+                // =========================================================
+                // REQUIRE SELF-CONTAINED ENSMAP1 METADATA
+                //
+                // Export no longer creates ScenarioDescriptions XML,
+                // loose StringTables or JSON metadata.
+                //
+                // The ERA must already contain everything required by the
+                // modular executable.
+                // =========================================================
+
+                StatusText.Text =
+                    "Verifying embedded ENSMAP1 manifest...";
+
+
+                EraManifestFooterService.Manifest manifest =
+                    EraManifestFooterService.TryRead(
+                        sourceEraPath)
+                    ?? throw new InvalidDataException(
+                        "This ERA does not contain an Ensemble ENSMAP1 " +
+                        "map manifest.\n\n" +
+
+                        "Use Save As... to create a standalone custom ERA " +
+                        "before exporting it to Halo Wars.");
+
+
+                _currentEraManifest =
+                    manifest;
+
+
+                // Keep the editor metadata model synchronized with the
+                // manifest that is actually inside the ERA.
+                _currentMapMetadata =
+                    new MapMetadata
+                    {
+                        DisplayName =
+                            manifest.DisplayName,
+
+                        Description =
+                            manifest.Description
+                    };
+
+
+                // =========================================================
+                // VERIFY ERA / SCENARIO BASENAME
+                //
+                // Example:
+                //
+                // new_gulch.era
+                //
+                // skirmish\design\blood_gulch\new_gulch.scn
+                //
+                // These MUST share the same basename.
+                // =========================================================
 
                 string eraBasename =
                     Path.GetFileNameWithoutExtension(
-                        _currentArchive.FileName);
+                        sourceEraPath)
+                    .Trim();
 
 
-                // =========================================================
-                // ERA basename and internal SCN basename MUST match.
-                // =========================================================
+                if (!IsSafeScenarioBasename(
+                        eraBasename))
+                {
+                    throw new InvalidDataException(
+                        "The ERA filename is not a valid Halo Wars " +
+                        "scenario basename.\n\n" +
+
+                        "Use only letters, numbers, underscores and hyphens.");
+                }
+
+
+                string manifestScenario =
+                    manifest.ScenarioFile
+                        .Replace(
+                            '/',
+                            '\\');
+
+
+                int lastSlash =
+                    manifestScenario.LastIndexOf(
+                        '\\');
+
+
+                string scenarioLeaf =
+                    lastSlash >=
+                        0
+                        ? manifestScenario[
+                            (lastSlash + 1)..]
+                        : manifestScenario;
+
+
+                if (!scenarioLeaf.EndsWith(
+                        ".scn",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException(
+                        "The ENSMAP1 ScenarioFile does not end in .scn.\n\n" +
+
+                        manifest.ScenarioFile);
+                }
+
+
+                string scenarioBasename =
+                    scenarioLeaf[
+                        ..^4];
+
 
                 if (!string.Equals(
-                        scenarioBasename,
                         eraBasename,
+                        scenarioBasename,
                         StringComparison.OrdinalIgnoreCase))
                 {
                     MessageBox.Show(
                         this,
 
-                        "This ERA is not ready to be installed as a " +
-                        "separate custom map.\n\n" +
+                        "This ERA is not ready to be exported as a " +
+                        "standalone custom map.\n\n" +
 
-                        "The ERA filename and internal scenario basename " +
+                        "The ERA filename and embedded scenario basename " +
                         "must match.\n\n" +
 
                         $"ERA:\n{eraBasename}\n\n" +
 
                         $"Scenario:\n{scenarioBasename}\n\n" +
 
-                        "Use 'Save As...' to create a standalone custom ERA first.",
+                        "Use Save As... to create a standalone custom ERA first.",
 
                         "Custom Map Naming Mismatch",
 
@@ -3963,7 +4063,53 @@ namespace Ensemble
 
 
                 // =========================================================
-                // Select Halo Wars executable.
+                // VERIFY SOURCE ERA CONTENT
+                // =========================================================
+
+                EraArchiveInfo sourceVerificationArchive =
+                    EraArchiveService.Open(
+                        sourceEraPath);
+
+
+                string expectedInternalScenario =
+                    "scenario\\" +
+                    manifestScenario +
+                    ".xmb";
+
+
+                string normalizedExpectedScenario =
+                    expectedInternalScenario
+                        .Replace(
+                            '/',
+                            '\\');
+
+
+                bool sourceContainsScenario =
+                    sourceVerificationArchive
+                        .Chunks
+                        .Any(
+                            chunk =>
+                                string.Equals(
+                                    chunk.FileName
+                                        .Replace(
+                                            '/',
+                                            '\\'),
+                                    normalizedExpectedScenario,
+                                    StringComparison.OrdinalIgnoreCase));
+
+
+                if (!sourceContainsScenario)
+                {
+                    throw new InvalidDataException(
+                        "The ERA's ENSMAP1 manifest points to a scenario " +
+                        "that does not exist inside the archive.\n\n" +
+
+                        $"Expected:\n{expectedInternalScenario}");
+                }
+
+
+                // =========================================================
+                // SELECT HALO WARS EXECUTABLE
                 // =========================================================
 
                 OpenFileDialog dialog =
@@ -4007,6 +4153,8 @@ namespace Ensemble
                         "Unable to determine the Halo Wars game directory.");
 
 
+                // A simple extra sanity check that the selected EXE actually
+                // lives in a Halo Wars installation.
                 string rootPath =
                     Path.Combine(
                         gameDirectory,
@@ -4019,19 +4167,20 @@ namespace Ensemble
                     throw new FileNotFoundException(
                         "Ensemble could not find root.era beside " +
                         "xgameFinal.exe.\n\n" +
-                        rootPath,
+
+                        "Select xgameFinal.exe from the Halo Wars " +
+                        "Definitive Edition installation directory.",
+
                         rootPath);
                 }
 
 
                 // =========================================================
-                // Patch / verify xgameFinal.exe.
-                //
-                // This operation is idempotent.
+                // INSTALL / VERIFY FULL MODULAR EXE PATCH
                 // =========================================================
 
                 StatusText.Text =
-                    "Checking Ensemble modding patches...";
+                    "Checking Ensemble modular EXE patch...";
 
 
                 HaloWarsExePatchResult patchResult =
@@ -4039,359 +4188,97 @@ namespace Ensemble
                         exePath);
 
 
-                if (!patchResult.EraSignatureBypassEnabled ||
-                    !patchResult.LooseFilesEnabled)
+                if (!patchResult.Success ||
+                    !patchResult.EraSignatureBypassEnabled ||
+                    !patchResult.ModularMapSupportEnabled)
                 {
                     throw new InvalidDataException(
-                        "The Halo Wars executable does not contain " +
-                        "all required Ensemble patches.");
+                        "Halo Wars does not contain all required " +
+                        "Ensemble modular map patches.");
                 }
 
 
                 string patchStatus =
                     patchResult.WasModified
-                        ? "Applied during this export"
+                        ? "Installed during this export"
                         : "Already installed";
 
 
                 // =========================================================
-                // Read STOCK ScenarioDescriptions and DE StringTables
-                // from root.era.
+                // INSTALL ERA
                 //
-                // root.era itself is NEVER modified.
-                // =========================================================
-
-                StatusText.Text =
-                    "Reading stock Halo Wars data...";
-
-
-                EraArchiveInfo rootArchive =
-                    EraArchiveService.Open(
-                        rootPath);
-
-
-                EraChunkInfo descriptionsChunk =
-                    ScenarioDescriptionsService
-                        .FindScenarioDescriptionsChunk(
-                            rootArchive);
-
-
-                byte[] stockDescriptionsXmb =
-                    EraExtractionService.ExtractChunk(
-                        rootArchive,
-                        descriptionsChunk);
-
-
-                // =========================================================
-                // Prepare loose data directory.
-                // =========================================================
-
-                string dataDirectory =
-                    Path.Combine(
-                        gameDirectory,
-                        "data");
-
-
-                Directory.CreateDirectory(
-                    dataDirectory);
-
-
-                string loosePath =
-                    Path.Combine(
-                        dataDirectory,
-                        "scenariodescriptions.xml");
-
-
-                // IMPORTANT:
+                // This is now the ENTIRE map installation.
                 //
-                // Preserve the current modular ScenarioDescriptions document.
-                // We no longer rebuild from stock on every export.
+                // No:
                 //
-                // This allows several custom maps to coexist.
-                string? existingLooseXml =
-                    File.Exists(
-                        loosePath)
-                        ? File.ReadAllText(
-                            loosePath)
-                        : null;
-
-
-                // =========================================================
-                // Find all Halo Wars DE language StringTables.
-                // =========================================================
-
-                StatusText.Text =
-                    "Reading Halo Wars localization tables...";
-
-
-                List<LocalizedStringTableSource>
-                    stringTableSources =
-                        StringTableService
-                            .FindLocalizedStringTables(
-                                rootArchive);
-
-
-                Dictionary<string, byte[]>
-                    stockStringTables =
-                        new(
-                            StringComparer.OrdinalIgnoreCase);
-
-
-                Dictionary<string, string?>
-                    existingLooseStringTables =
-                        new(
-                            StringComparer.OrdinalIgnoreCase);
-
-
-                foreach (LocalizedStringTableSource source
-                         in stringTableSources)
-                {
-                    byte[] stockXmb =
-                        EraExtractionService.ExtractChunk(
-                            rootArchive,
-                            source.Chunk);
-
-
-                    stockStringTables[
-                        source.LanguageCode] =
-                            stockXmb;
-
-
-                    string looseTablePath =
-                        Path.Combine(
-                            dataDirectory,
-                            source.LooseFileName);
-
-
-                    existingLooseStringTables[
-                        source.LanguageCode] =
-                            File.Exists(
-                                looseTablePath)
-                                ? File.ReadAllText(
-                                    looseTablePath)
-                                : null;
-                }
-
-
-                // =========================================================
-                // Load Ensemble map metadata.
+                //   data\scenariodescriptions.xml
+                //   data\stringtable-*.xml
+                //   .ensemble.json
                 //
-                // If the map has never had metadata before, generate sane
-                // defaults from the ERA filename.
-                // =========================================================
-
-                StatusText.Text =
-                    "Reading custom map metadata...";
-
-
-                MapMetadata metadata =
-                    _currentMapMetadata
-                    ?? MapMetadataService.Load(
-                        _currentArchive.FilePath)
-                    ?? MapMetadataService.CreateDefault(
-                        _currentArchive.FilePath);
-
-
-                _currentMapMetadata =
-                    metadata;
-
-
-                MapMetadataService.Save(
-                    _currentArchive.FilePath,
-                    metadata);
-
-
-                string displayName =
-                    metadata.DisplayName
-                        .Trim();
-
-
-                if (string.IsNullOrWhiteSpace(
-                        displayName))
-                {
-                    throw new InvalidDataException(
-                        "The custom map Display Name is empty.\n\n" +
-                        "Use Map > Map Metadata to set a name.");
-                }
-
-
-                string mapDescription =
-                    string.IsNullOrWhiteSpace(
-                        metadata.Description)
-                        ? "Custom map created with Ensemble."
-                        : metadata.Description
-                            .Trim();
-
-
-                // =========================================================
-                // Check whether THIS map has already been installed.
-                //
-                // Existing custom NameStringID / InfoStringID values are
-                // reused so re-exporting a map keeps a stable identity.
-                // =========================================================
-
-                ScenarioLocalizationIds existingIds =
-                    ScenarioDescriptionsService
-                        .GetExistingLocalizationIds(
-                            existingLooseXml,
-                            registrationFile);
-
-
-                long? existingNameId =
-                    existingIds.NameStringId;
-
-
-                long? existingInfoId =
-                    existingIds.InfoStringId;
-
-
-                // =========================================================
-                // Older Ensemble builds gave the custom map a custom
-                // NameStringID but retained the stock map's InfoStringID.
-                //
-                // Never intentionally overwrite a retail StringTable entry.
-                // =========================================================
-
-                if (existingNameId.HasValue &&
-                    !StringTableService.IsCustomStringId(
-                        existingNameId.Value))
-                {
-                    existingNameId =
-                        null;
-                }
-
-
-                if (existingInfoId.HasValue &&
-                    !StringTableService.IsCustomStringId(
-                        existingInfoId.Value))
-                {
-                    existingInfoId =
-                        null;
-                }
-
-
-                // =========================================================
-                // Allocate / reuse localization IDs.
-                // =========================================================
-
-                long customNameStringId =
-                    existingNameId
-                    ?? StringTableService
-                        .FindFreeCustomStringId(
-                            stockStringTables.Values,
-                            existingLooseStringTables.Values);
-
-
-                long customInfoStringId =
-                    existingInfoId
-                    ?? StringTableService
-                        .FindFreeCustomStringId(
-                            stockStringTables.Values,
-                            existingLooseStringTables.Values,
-                            new[]
-                            {
-                        customNameStringId
-                            });
-
-
-                // Name and description must never share an ID.
-                if (customNameStringId ==
-                    customInfoStringId)
-                {
-                    throw new InvalidDataException(
-                        "The map NameStringID and InfoStringID are identical.\n\n" +
-                        $"ID: {customNameStringId}");
-                }
-
-
-                // =========================================================
-                // Generate every language-specific loose StringTable.
-                //
-                // Existing loose content is preserved.
-                // =========================================================
-
-                StatusText.Text =
-                    "Building custom map localization...";
-
-
-                Dictionary<string, string>
-                    generatedStringTables =
-                        new(
-                            StringComparer.OrdinalIgnoreCase);
-
-
-                foreach (LocalizedStringTableSource source
-                         in stringTableSources)
-                {
-                    string generatedXml =
-                        StringTableService
-                            .BuildOrUpdateLooseStringTable(
-                                stockStringTables[
-                                    source.LanguageCode],
-
-                                existingLooseStringTables[
-                                    source.LanguageCode],
-
-                                customNameStringId,
-                                displayName);
-
-
-                    // Feed the just-generated XML back into the service so
-                    // the description is added to the same document.
-                    generatedXml =
-                        StringTableService
-                            .BuildOrUpdateLooseStringTable(
-                                stockStringTables[
-                                    source.LanguageCode],
-
-                                generatedXml,
-
-                                customInfoStringId,
-                                mapDescription);
-
-
-                    generatedStringTables[
-                        source.LanguageCode] =
-                            generatedXml;
-                }
-
-
-                // =========================================================
-                // Build / update modular ScenarioDescriptions.
-                // =========================================================
-
-                StatusText.Text =
-                    "Registering custom scenario...";
-
-
-                LooseScenarioRegistrationResult registration =
-                    ScenarioDescriptionsService
-                        .BuildOrUpdateLooseScenarioDescriptions(
-                            stockDescriptionsXmb,
-                            existingLooseXml,
-                            registrationFile,
-                            customNameStringId,
-                            customInfoStringId);
-
-
-                // =========================================================
-                // Install custom ERA FIRST.
-                //
-                // ScenarioDescriptions is only replaced after the ERA has
-                // been copied and verified successfully.
+                // are generated.
                 // =========================================================
 
                 string installedEraPath =
                     Path.Combine(
                         gameDirectory,
-                        _currentArchive.FileName);
+                        Path.GetFileName(
+                            sourceEraPath));
 
 
-                if (!string.Equals(
-                        _currentArchive.FilePath,
-                        installedEraPath,
-                        StringComparison.OrdinalIgnoreCase))
+                bool sourceAlreadyInstalled =
+                    string.Equals(
+                        Path.GetFullPath(
+                            sourceEraPath),
+                        Path.GetFullPath(
+                            installedEraPath),
+                        StringComparison.OrdinalIgnoreCase);
+
+
+                // =========================================================
+                // PROTECT STOCK / NON-ENSEMBLE ERAS
+                //
+                // If another file with this name already exists and it
+                // doesn't contain ENSMAP1, don't overwrite it.
+                //
+                // This prevents e.g. a custom map accidentally replacing
+                // blood_gulch.era.
+                // =========================================================
+
+                if (!sourceAlreadyInstalled &&
+                    File.Exists(
+                        installedEraPath))
                 {
+                    EraManifestFooterService.Manifest?
+                        existingInstalledManifest =
+                            EraManifestFooterService.TryRead(
+                                installedEraPath);
+
+
+                    if (existingInstalledManifest ==
+                        null)
+                    {
+                        throw new InvalidDataException(
+                            "Ensemble refused to overwrite an existing " +
+                            "non-Ensemble ERA in the Halo Wars directory.\n\n" +
+
+                            $"Existing file:\n{installedEraPath}\n\n" +
+
+                            "Use Save As... and choose a unique custom map " +
+                            "filename.");
+                    }
+                }
+
+
+                // =========================================================
+                // COPY THROUGH TEMP FILE
+                // =========================================================
+
+                if (!sourceAlreadyInstalled)
+                {
+                    StatusText.Text =
+                        "Installing custom ERA...";
+
+
                     string tempEraPath =
                         installedEraPath +
                         ".ensemble.tmp";
@@ -4400,35 +4287,105 @@ namespace Ensemble
                     try
                     {
                         File.Copy(
-                            _currentArchive.FilePath,
+                            sourceEraPath,
                             tempEraPath,
                             overwrite: true);
 
 
                         // -------------------------------------------------
-                        // Verify copied ERA.
+                        // Verify copied manifest BEFORE replacing an
+                        // existing custom map.
                         // -------------------------------------------------
 
-                        EraArchiveInfo verificationArchive =
+                        EraManifestFooterService.Manifest?
+                            tempManifest =
+                                EraManifestFooterService.TryRead(
+                                    tempEraPath);
+
+
+                        if (tempManifest ==
+                            null)
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA lost its ENSMAP1 manifest.");
+                        }
+
+
+                        if (!string.Equals(
+                                tempManifest.ScenarioFile,
+                                manifest.ScenarioFile,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA manifest ScenarioFile " +
+                                "failed verification.");
+                        }
+
+
+                        if (!string.Equals(
+                                tempManifest.DisplayName,
+                                manifest.DisplayName,
+                                StringComparison.Ordinal))
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA manifest DisplayName " +
+                                "failed verification.");
+                        }
+
+
+                        if (!string.Equals(
+                                tempManifest.Description,
+                                manifest.Description,
+                                StringComparison.Ordinal))
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA manifest Description " +
+                                "failed verification.");
+                        }
+
+
+                        if (tempManifest.MaxPlayers !=
+                            manifest.MaxPlayers)
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA manifest MaxPlayers " +
+                                "failed verification.");
+                        }
+
+
+                        if (!string.Equals(
+                                tempManifest.LoadingScreen,
+                                manifest.LoadingScreen,
+                                StringComparison.Ordinal))
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA manifest LoadingScreen " +
+                                "failed verification.");
+                        }
+
+
+                        if (!string.Equals(
+                                tempManifest.MapName,
+                                manifest.MapName,
+                                StringComparison.Ordinal))
+                        {
+                            throw new InvalidDataException(
+                                "The copied ERA manifest MapName " +
+                                "failed verification.");
+                        }
+
+
+                        // -------------------------------------------------
+                        // Verify copied ERA itself.
+                        // -------------------------------------------------
+
+                        EraArchiveInfo tempArchive =
                             EraArchiveService.Open(
                                 tempEraPath);
 
 
-                        string expectedInternalScenario =
-                            "scenario\\" +
-                            registrationFile +
-                            ".xmb";
-
-
-                        string normalizedExpected =
-                            expectedInternalScenario
-                                .Replace(
-                                    '/',
-                                    '\\');
-
-
-                        bool containsScenario =
-                            verificationArchive
+                        bool tempContainsScenario =
+                            tempArchive
                                 .Chunks
                                 .Any(
                                     chunk =>
@@ -4437,29 +4394,23 @@ namespace Ensemble
                                                 .Replace(
                                                     '/',
                                                     '\\'),
-                                            normalizedExpected,
+                                            normalizedExpectedScenario,
                                             StringComparison.OrdinalIgnoreCase));
 
 
-                        if (!containsScenario)
+                        if (!tempContainsScenario)
                         {
                             throw new InvalidDataException(
-                                "Custom ERA verification failed.\n\n" +
+                                "The copied custom ERA does not contain " +
+                                "the scenario referenced by ENSMAP1.\n\n" +
 
-                                "The installed archive does not contain:\n\n" +
-
-                                expectedInternalScenario);
+                                $"Expected:\n{expectedInternalScenario}");
                         }
 
 
-                        if (File.Exists(
-                                installedEraPath))
-                        {
-                            CreateSaveBackupIfNeeded(
-                                installedEraPath);
-                        }
-
-
+                        // No .era backup is deliberately created in the game
+                        // directory. A second .era with the same ENSMAP1 footer
+                        // could itself be discovered by the modular scanner.
                         File.Copy(
                             tempEraPath,
                             installedEraPath,
@@ -4475,284 +4426,117 @@ namespace Ensemble
                         }
                     }
                 }
-                else
-                {
-                    // -----------------------------------------------------
-                    // ERA already lives in Halo Wars directory.
-                    // Verify it anyway.
-                    // -----------------------------------------------------
-
-                    EraArchiveInfo verificationArchive =
-                        EraArchiveService.Open(
-                            installedEraPath);
-
-
-                    string expectedInternalScenario =
-                        "scenario\\" +
-                        registrationFile +
-                        ".xmb";
-
-
-                    string normalizedExpected =
-                        expectedInternalScenario
-                            .Replace(
-                                '/',
-                                '\\');
-
-
-                    bool containsScenario =
-                        verificationArchive
-                            .Chunks
-                            .Any(
-                                chunk =>
-                                    string.Equals(
-                                        chunk.FileName
-                                            .Replace(
-                                                '/',
-                                                '\\'),
-                                        normalizedExpected,
-                                        StringComparison.OrdinalIgnoreCase));
-
-
-                    if (!containsScenario)
-                    {
-                        throw new InvalidDataException(
-                            "Custom ERA verification failed.\n\n" +
-
-                            "The archive does not contain:\n\n" +
-
-                            expectedInternalScenario);
-                    }
-                }
 
 
                 // =========================================================
-                // Install ALL language-specific loose StringTables.
+                // FINAL INSTALLED ERA VERIFICATION
                 // =========================================================
 
                 StatusText.Text =
-                    "Installing custom map localization...";
+                    "Verifying installed custom map...";
 
 
-                foreach (LocalizedStringTableSource source
-                         in stringTableSources)
+                EraManifestFooterService.Manifest installedManifest =
+                    EraManifestFooterService.TryRead(
+                        installedEraPath)
+                    ?? throw new InvalidDataException(
+                        "The installed custom ERA does not contain " +
+                        "an ENSMAP1 manifest.");
+
+
+                if (!string.Equals(
+                        installedManifest.ScenarioFile,
+                        manifest.ScenarioFile,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    string looseTablePath =
-                        Path.Combine(
-                            dataDirectory,
-                            source.LooseFileName);
+                    throw new InvalidDataException(
+                        "Installed ENSMAP1 ScenarioFile failed verification.");
+                }
 
 
-                    string backupTablePath =
-                        Path.Combine(
-                            dataDirectory,
-
-                            Path.GetFileNameWithoutExtension(
-                                source.LooseFileName)
-
-                            + ".pre_ensemble_backup.xml");
-
-
-                    // Preserve the state before Ensemble first touched it.
-                    if (File.Exists(
-                            looseTablePath) &&
-                        !File.Exists(
-                            backupTablePath))
-                    {
-                        File.Copy(
-                            looseTablePath,
-                            backupTablePath,
-                            overwrite: false);
-                    }
+                if (!string.Equals(
+                        installedManifest.DisplayName,
+                        manifest.DisplayName,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "Installed ENSMAP1 DisplayName failed verification.");
+                }
 
 
-                    string tempTablePath =
-                        looseTablePath +
-                        ".ensemble.tmp";
+                if (!string.Equals(
+                        installedManifest.Description,
+                        manifest.Description,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "Installed ENSMAP1 Description failed verification.");
+                }
 
 
-                    try
-                    {
-                        string generatedXml =
-                            generatedStringTables[
-                                source.LanguageCode];
+                if (installedManifest.MaxPlayers !=
+                    manifest.MaxPlayers)
+                {
+                    throw new InvalidDataException(
+                        "Installed ENSMAP1 MaxPlayers failed verification.");
+                }
 
 
-                        File.WriteAllText(
-                            tempTablePath,
-
-                            generatedXml,
-
-                            new System.Text.UTF8Encoding(
-                                encoderShouldEmitUTF8Identifier: false));
-
-
-                        string verificationXml =
-                            File.ReadAllText(
-                                tempTablePath);
+                if (!string.Equals(
+                        installedManifest.LoadingScreen,
+                        manifest.LoadingScreen,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "Installed ENSMAP1 LoadingScreen failed verification.");
+                }
 
 
-                        bool containsName =
-                            StringTableService
-                                .ContainsString(
-                                    verificationXml,
-                                    customNameStringId,
-                                    displayName);
+                if (!string.Equals(
+                        installedManifest.MapName,
+                        manifest.MapName,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "Installed ENSMAP1 MapName failed verification.");
+                }
 
 
-                        bool containsDescription =
-                            StringTableService
-                                .ContainsString(
-                                    verificationXml,
-                                    customInfoStringId,
-                                    mapDescription);
+                EraArchiveInfo installedArchive =
+                    EraArchiveService.Open(
+                        installedEraPath);
 
 
-                        if (!containsName ||
-                            !containsDescription)
-                        {
-                            throw new InvalidDataException(
-                                "Loose StringTable verification failed.\n\n" +
-
-                                $"Language: {source.LanguageCode}\n" +
-                                $"Map name: {displayName}\n" +
-                                $"Name ID: {customNameStringId}\n" +
-                                $"Info ID: {customInfoStringId}\n\n" +
-
-                                $"Name present: {containsName}\n" +
-                                $"Description present: {containsDescription}");
-                        }
+                bool installedContainsScenario =
+                    installedArchive
+                        .Chunks
+                        .Any(
+                            chunk =>
+                                string.Equals(
+                                    chunk.FileName
+                                        .Replace(
+                                            '/',
+                                            '\\'),
+                                    normalizedExpectedScenario,
+                                    StringComparison.OrdinalIgnoreCase));
 
 
-                        File.Copy(
-                            tempTablePath,
-                            looseTablePath,
-                            overwrite: true);
-                    }
-                    finally
-                    {
-                        if (File.Exists(
-                                tempTablePath))
-                        {
-                            File.Delete(
-                                tempTablePath);
-                        }
-                    }
+                if (!installedContainsScenario)
+                {
+                    throw new InvalidDataException(
+                        "The installed ERA does not contain the scenario " +
+                        "referenced by its ENSMAP1 manifest.\n\n" +
 
-
-                    // Loose XML should remain newer than archived XMB.
-                    File.SetLastWriteTimeUtc(
-                        looseTablePath,
-                        DateTime.UtcNow);
+                        $"Expected:\n{expectedInternalScenario}");
                 }
 
 
                 // =========================================================
-                // Preserve pre-Ensemble ScenarioDescriptions once.
-                // =========================================================
-
-                string looseBackupPath =
-                    Path.Combine(
-                        dataDirectory,
-                        "scenariodescriptions.pre_ensemble_backup.xml");
-
-
-                if (File.Exists(
-                        loosePath) &&
-                    !File.Exists(
-                        looseBackupPath))
-                {
-                    File.Copy(
-                        loosePath,
-                        looseBackupPath,
-                        overwrite: false);
-                }
-
-
-                // =========================================================
-                // Write ScenarioDescriptions LAST.
+                // SUCCESS
                 // =========================================================
 
                 StatusText.Text =
-                    "Writing custom map registry...";
-
-
-                string tempLoosePath =
-                    loosePath +
-                    ".ensemble.tmp";
-
-
-                try
-                {
-                    File.WriteAllText(
-                        tempLoosePath,
-
-                        registration.Xml,
-
-                        new System.Text.UTF8Encoding(
-                            encoderShouldEmitUTF8Identifier: false));
-
-
-                    string verificationXml =
-                        File.ReadAllText(
-                            tempLoosePath);
-
-
-                    if (!ScenarioDescriptionsService
-                            .ContainsScenarioFile(
-                                verificationXml,
-                                registrationFile))
-                    {
-                        throw new InvalidDataException(
-                            "Loose ScenarioDescriptions verification failed.\n\n" +
-
-                            "The custom map entry could not be found " +
-                            "after writing the file.");
-                    }
-
-
-                    File.Copy(
-                        tempLoosePath,
-                        loosePath,
-                        overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(
-                            tempLoosePath))
-                    {
-                        File.Delete(
-                            tempLoosePath);
-                    }
-                }
-
-
-                // Keep loose XML newer than archived XMB.
-                File.SetLastWriteTimeUtc(
-                    loosePath,
-                    DateTime.UtcNow);
-
-
-                // =========================================================
-                // Success.
-                // =========================================================
-
-                string registryAction =
-                    registration.Added
-                        ? "Added new map entry"
-                        : "Updated existing map entry";
-
-
-                string duplicateText =
-                    registration.RemovedDuplicateCount >
-                        0
-                        ? "\nRemoved duplicate entries: " +
-                          $"{registration.RemovedDuplicateCount}\n"
-                        : string.Empty;
-
-
-                StatusText.Text =
-                    $"Installed custom map: {displayName}";
+                    $"Installed custom map: {manifest.DisplayName}";
 
 
                 MessageBox.Show(
@@ -4760,42 +4544,23 @@ namespace Ensemble
 
                     "Custom map installed successfully.\n\n" +
 
-                    $"EXE modding patch:\n" +
-                    $"{patchStatus}\n\n" +
+                    $"EXE modular patch:\n{patchStatus}\n\n" +
 
-                    $"{registryAction}\n" +
-                    $"Scenario entries: {registration.ScenarioCount}\n" +
+                    $"Installed ERA:\n{installedEraPath}\n\n" +
 
-                    duplicateText +
+                    $"Display name:\n{manifest.DisplayName}\n\n" +
 
-                    $"\nInstalled ERA:\n" +
-                    $"{installedEraPath}\n\n" +
+                    $"Description:\n{manifest.Description}\n\n" +
 
-                    $"Scenario:\n" +
-                    $"{registration.TargetScenarioFile}\n\n" +
+                    $"Scenario:\n{manifest.ScenarioFile}\n\n" +
 
-                    $"Template:\n" +
-                    $"{registration.TemplateScenarioFile}\n\n" +
+                    $"Max players:\n{manifest.MaxPlayers}\n\n" +
 
-                    $"Display name:\n" +
-                    $"{displayName}\n\n" +
+                    "" +
+                    "" +
 
-                    $"Description:\n" +
-                    $"{mapDescription}\n\n" +
-
-                    $"NameStringID:\n" +
-                    $"{customNameStringId}\n\n" +
-
-                    $"InfoStringID:\n" +
-                    $"{customInfoStringId}\n\n" +
-
-                    $"Localized tables installed:\n" +
-                    $"{stringTableSources.Count}\n\n" +
-
-                    $"Loose registry:\n" +
-                    $"{loosePath}\n\n" +
-
-                    "root.era was read only and was not modified.",
+                    " " +
+                    "",
 
                     "Custom Map Installed",
 
