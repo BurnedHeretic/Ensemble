@@ -4238,6 +4238,23 @@ namespace Ensemble
                         ? "Installed during this export"
                         : "Already installed";
 
+                StatusText.Text =
+                    "Installing custom map thumbnail...";
+
+
+                string pregameUiEraPath =
+                    Path.Combine(
+                        gameDirectory,
+                        "pregameUI.era");
+
+
+                PregameUiThumbnailService.InstallResult
+                    thumbnailInstall =
+                        PregameUiThumbnailService.InstallFromMapEra(
+                            sourceEraPath,
+                            pregameUiEraPath,
+                            manifest);
+
 
                 // =========================================================
                 // INSTALL ERA
