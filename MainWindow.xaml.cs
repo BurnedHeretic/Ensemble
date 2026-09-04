@@ -60,6 +60,9 @@ namespace Ensemble
         private MapMetadata?
             _currentMapMetadata;
 
+        private bool
+            _metadataDirty;
+
         private EraManifestFooterService.Manifest?
             _currentEraManifest;
 
@@ -433,6 +436,8 @@ namespace Ensemble
                     MapMetadataService.Load(
                         filePath);
             }
+
+            _metadataDirty = false;
 
             ScenarioMapCanvas.CancelObjectPlacement();
 
@@ -2882,7 +2887,9 @@ namespace Ensemble
                 _savedRevisionId
                 ||
                 ScenarioMapCanvas
-                .HasTerrainPreviewChanges;
+                .HasTerrainPreviewChanges
+                ||
+                _metadataDirty;
 
             UpdateWindowTitle();
         }
@@ -5785,9 +5792,12 @@ namespace Ensemble
                             ?? string.Empty,
 
                         MapName =
-                            _currentEraManifest?
-                                .MapName
-                            ?? string.Empty
+                        !string.IsNullOrWhiteSpace(
+                            _currentEraManifest?.MapName)
+                        ? _currentEraManifest!.MapName
+                        : BuildStockMapThumbnailUrl(
+                            _currentScenarioChunk)
+
                     };
 
 
@@ -6089,8 +6099,11 @@ namespace Ensemble
                             verificationManifest.DisplayName,
 
                         Description =
-                            verificationManifest.Description
+                            verificationManifest.Description,
+
                     };
+
+                _metadataDirty = false;
 
 
                 // =========================================================
@@ -6371,6 +6384,64 @@ namespace Ensemble
             }
         }
 
+        // =================================================
+        // Thumbnail
+        // =================================================
+        private static string BuildStockMapThumbnailUrl(
+            EraChunkInfo scenarioChunk)
+        {
+            string scenarioPath =
+                scenarioChunk
+                    .FileName
+                    .Replace(
+                        '/',
+                        '\\');
+
+
+            const string suffix =
+                ".scn.xmb";
+
+
+            if (!scenarioPath.EndsWith(
+                    suffix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+
+            int slash =
+                scenarioPath.LastIndexOf(
+                    '\\');
+
+
+            string leaf =
+                slash >=
+                    0
+                    ? scenarioPath[
+                        (slash + 1)..]
+                    : scenarioPath;
+
+
+            string sourceBasename =
+                leaf[
+                    ..^suffix.Length];
+
+
+            if (!IsSafeScenarioBasename(
+                    sourceBasename))
+            {
+                return string.Empty;
+            }
+
+
+            return
+                "img://art\\ui\\flash\\shared\\textures\\" +
+                "pregame\\mapimages\\" +
+                sourceBasename +
+                ".ddx";
+        }
+
         // =========================================================
         // View 
         // =========================================================
@@ -6649,9 +6720,15 @@ namespace Ensemble
                 dialog.Metadata;
 
 
-            MapMetadataService.Save(
-                _currentArchive.FilePath,
-                _currentMapMetadata);
+            _metadataDirty =
+                true;
+
+
+            UpdateDirtyState();
+
+
+            StatusText.Text =
+                "Map metadata changed. Save the ERA to embed it.";
 
 
             StatusText.Text =
