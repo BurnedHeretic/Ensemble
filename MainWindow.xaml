@@ -109,6 +109,13 @@
               Click="MapMetadata_Click"
               IsEnabled="False"/>
 
+                <Separator/>
+
+                <MenuItem x:Name="ImportMapThumbnailMenuItem"
+              Header="Import _Thumbnail DDX..."
+              Click="ImportMapThumbnail_Click"
+              IsEnabled="False"/>
+
             </MenuItem>
 
 

@@ -63,6 +63,17 @@ namespace Ensemble
         private bool
             _metadataDirty;
 
+        private bool
+            _thumbnailDirty;
+
+
+        private byte[]?
+            _pendingThumbnailDdxData;
+
+
+        private string?
+            _pendingThumbnailSourcePath;
+
         private EraManifestFooterService.Manifest?
             _currentEraManifest;
 
@@ -439,6 +450,16 @@ namespace Ensemble
 
             _metadataDirty = false;
 
+            _thumbnailDirty = false;
+
+
+            _pendingThumbnailDdxData =
+                null;
+
+
+            _pendingThumbnailSourcePath =
+                null;
+
             ScenarioMapCanvas.CancelObjectPlacement();
 
             ScenarioMapCanvas
@@ -479,6 +500,8 @@ namespace Ensemble
 
             MapMetadataMenuItem.IsEnabled =
                 false;
+
+            ImportMapThumbnailMenuItem.IsEnabled = false;
 
             _undoStack.Clear();
 
@@ -1348,6 +1371,9 @@ namespace Ensemble
                         true;
 
                     MapMetadataMenuItem.IsEnabled =
+                        true;
+
+                    ImportMapThumbnailMenuItem.IsEnabled =
                         true;
 
                     ScenarioMap map =
@@ -2887,9 +2913,11 @@ namespace Ensemble
                 _savedRevisionId
                 ||
                 ScenarioMapCanvas
-                .HasTerrainPreviewChanges
-                ||
-                _metadataDirty;
+        .HasTerrainPreviewChanges
+        ||
+        _metadataDirty
+        ||
+        _thumbnailDirty;
 
             UpdateWindowTitle();
         }
@@ -5598,6 +5626,89 @@ namespace Ensemble
                             targetBasename);
                 }
 
+                // =========================================================
+                // OPTIONAL CUSTOM MAP THUMBNAIL
+                // =========================================================
+
+                List<EraFileAddition> fileAdditions =
+                    new();
+
+
+                string? pendingThumbnailArchivePath =
+                    null;
+
+
+                string? pendingThumbnailUrl =
+                    null;
+
+
+                if (_pendingThumbnailDdxData !=
+                    null)
+                {
+                    DdxTextureService
+                        .ValidateMapThumbnail(
+                            _pendingThumbnailDdxData);
+
+
+                    pendingThumbnailArchivePath =
+                        BuildCustomThumbnailArchivePath(
+                            targetPath);
+
+
+                    pendingThumbnailUrl =
+                        BuildCustomThumbnailUrl(
+                            pendingThumbnailArchivePath);
+
+
+                    EraChunkInfo? existingThumbnail =
+                        _currentArchive
+                            .Chunks
+                            .FirstOrDefault(
+                                chunk =>
+                                    string.Equals(
+                                        chunk.FileName
+                                            .Replace(
+                                                '/',
+                                                '\\'),
+                                        pendingThumbnailArchivePath,
+                                        StringComparison.OrdinalIgnoreCase));
+
+
+                    if (existingThumbnail !=
+                        null)
+                    {
+                        // Replacing an already-embedded custom thumbnail.
+                        replacements[
+                            existingThumbnail.Index] =
+                                _pendingThumbnailDdxData;
+                    }
+                    else
+                    {
+                        // First custom thumbnail for this ERA.
+                        fileAdditions.Add(
+                            new EraFileAddition
+                            {
+                                FileName =
+                                    pendingThumbnailArchivePath,
+
+                                Data =
+                                    _pendingThumbnailDdxData,
+
+                                // Shipping repository.ddx proves Stored DDX
+                                // resources are valid in Halo Wars DE.
+                                CompressionMethod =
+                                    0,
+
+                                // Shipping map thumbnails use 4-byte alignment.
+                                AlignmentLog2 =
+                                    2,
+
+                                ResourceFlags =
+                                    0
+                            });
+                    }
+                }
+
 
                 // =========================================================
                 // BUILD NORMAL HALO WARS ERA
@@ -5607,7 +5718,8 @@ namespace Ensemble
                     EraRebuildService.BuildModifiedEra(
                         _currentArchive,
                         replacements,
-                        fileRenames);
+                        fileRenames,
+                        fileAdditions);
 
 
                 // =========================================================
@@ -5792,11 +5904,15 @@ namespace Ensemble
                             ?? string.Empty,
 
                         MapName =
+                        pendingThumbnailUrl
+                        ??
+                        (
                         !string.IsNullOrWhiteSpace(
                             _currentEraManifest?.MapName)
                         ? _currentEraManifest!.MapName
                         : BuildStockMapThumbnailUrl(
                             _currentScenarioChunk)
+            )
 
                     };
 
@@ -5891,6 +6007,15 @@ namespace Ensemble
                         "ERA manifest MaxPlayers failed verification.");
                 }
 
+                if (!string.Equals(
+                    verificationManifest.MapName,
+                    manifest.MapName,
+                    StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "ERA manifest MapName failed verification.");
+                }
+
 
                 // =========================================================
                 // VERIFY NORMAL ERA CONTENTS
@@ -5937,6 +6062,60 @@ namespace Ensemble
                 ValidateScenarioRoundTrip(
                     expected,
                     verificationScenario);
+
+                // =========================================================
+                // VERIFY CUSTOM THUMBNAIL
+                // =========================================================
+
+                if (pendingThumbnailArchivePath !=
+                        null &&
+                    _pendingThumbnailDdxData !=
+                        null)
+                {
+                    EraChunkInfo? verificationThumbnailChunk =
+                        verificationArchive
+                            .Chunks
+                            .FirstOrDefault(
+                                chunk =>
+                                    string.Equals(
+                                        chunk.FileName
+                                            .Replace(
+                                                '/',
+                                                '\\'),
+                                        pendingThumbnailArchivePath,
+                                        StringComparison.OrdinalIgnoreCase));
+
+
+                    if (verificationThumbnailChunk ==
+                        null)
+                    {
+                        throw new InvalidDataException(
+                            "Saved ERA lost the custom thumbnail.\n\n" +
+                            pendingThumbnailArchivePath);
+                    }
+
+
+                    byte[] verificationThumbnail =
+                        EraExtractionService.ExtractChunk(
+                            verificationArchive,
+                            verificationThumbnailChunk);
+
+
+                    if (!verificationThumbnail
+                            .AsSpan()
+                            .SequenceEqual(
+                                _pendingThumbnailDdxData))
+                    {
+                        throw new InvalidDataException(
+                            "Custom thumbnail failed ERA " +
+                            "round-trip verification.");
+                    }
+
+
+                    DdxTextureService
+                        .ValidateMapThumbnail(
+                            verificationThumbnail);
+                }
 
 
                 // =========================================================
@@ -6104,6 +6283,17 @@ namespace Ensemble
                     };
 
                 _metadataDirty = false;
+
+                _thumbnailDirty =
+                    false;
+
+
+                _pendingThumbnailDdxData =
+                    null;
+
+
+                _pendingThumbnailSourcePath =
+                    null;
 
 
                 // =========================================================
@@ -6440,6 +6630,129 @@ namespace Ensemble
                 "pregame\\mapimages\\" +
                 sourceBasename +
                 ".ddx";
+        }
+
+        private void ImportMapThumbnail_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentArchive ==
+                    null ||
+                _currentScenarioChunk ==
+                    null)
+            {
+                return;
+            }
+
+
+            OpenFileDialog dialog =
+                new OpenFileDialog
+                {
+                    Title =
+                        "Import Halo Wars Map Thumbnail",
+
+                    Filter =
+                        "Halo Wars DDX (*.ddx)|*.ddx|" +
+                        "All Files (*.*)|*.*",
+
+                    CheckFileExists =
+                        true,
+
+                    Multiselect =
+                        false
+                };
+
+
+            if (dialog.ShowDialog(
+                    this) !=
+                true)
+            {
+                return;
+            }
+
+
+            try
+            {
+                byte[] data =
+                    File.ReadAllBytes(
+                        dialog.FileName);
+
+
+                DdxTextureService
+                    .ValidateMapThumbnail(
+                        data);
+
+
+                _pendingThumbnailDdxData =
+                    data;
+
+
+                _pendingThumbnailSourcePath =
+                    dialog.FileName;
+
+
+                _thumbnailDirty =
+                    true;
+
+
+                UpdateDirtyState();
+
+
+                StatusText.Text =
+                    $"Thumbnail queued: " +
+                    $"{Path.GetFileName(dialog.FileName)} | " +
+                    "Save the ERA to embed it.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+
+                    "Thumbnail Import Failed",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+
+                StatusText.Text =
+                    "Thumbnail import failed.";
+            }
+        }
+
+
+        private static string BuildCustomThumbnailArchivePath(
+            string targetPath)
+        {
+            string basename =
+                Path.GetFileNameWithoutExtension(
+                    targetPath)
+                .Trim();
+
+
+            if (!IsSafeScenarioBasename(
+                    basename))
+            {
+                throw new InvalidDataException(
+                    "The ERA filename cannot be used as a " +
+                    "thumbnail resource name.");
+            }
+
+
+            return
+                "art\\ui\\flash\\shared\\textures\\" +
+                "pregame\\mapimages\\" +
+                basename +
+                ".ddx";
+        }
+
+
+        private static string BuildCustomThumbnailUrl(
+            string archivePath)
+        {
+            return
+                "img://" +
+                archivePath;
         }
 
         // =========================================================

@@ -1,4 +1,4 @@
-﻿using Ensemble.Models;
+using Ensemble.Models;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text;
@@ -48,14 +48,6 @@ namespace Ensemble.Services
 
         // =========================================================
         // FILENAME-ONLY REBUILD
-        //
-        // Used for creating a custom scenario alias such as:
-        //
-        // blood_gulch.scn.xmb
-        //      ↓
-        // ensemble_blood_gulch.scn.xmb
-        //
-        // without changing the contents of the file itself.
         // =========================================================
 
         public static byte[] BuildRenamedEra(
@@ -71,7 +63,9 @@ namespace Ensemble.Services
 
 
         // =========================================================
-        // MULTIPLE FILE REPLACEMENTS + FILENAME RENAMES
+        // REPLACEMENTS + RENAMES
+        //
+        // Kept for all existing Ensemble callers.
         // =========================================================
 
         public static byte[] BuildModifiedEra(
@@ -81,33 +75,57 @@ namespace Ensemble.Services
             IReadOnlyDictionary<int, string>
                 fileRenames)
         {
-            if (archive == null)
-            {
-                throw new ArgumentNullException(
-                    nameof(archive));
-            }
+            return BuildModifiedEra(
+                archive,
+                replacementFiles,
+                fileRenames,
+                Array.Empty<EraFileAddition>());
+        }
 
-            if (replacementFiles == null)
-            {
-                throw new ArgumentNullException(
-                    nameof(replacementFiles));
-            }
 
-            if (fileRenames == null)
-            {
-                throw new ArgumentNullException(
-                    nameof(fileRenames));
-            }
+        // =========================================================
+        // REPLACEMENTS + RENAMES + BRAND-NEW FILES
+        //
+        // New files are appended to the chunk table so every
+        // existing chunk index remains stable. This is important
+        // because MainWindow's save verification tracks scenario /
+        // terrain chunks by their current indices.
+        // =========================================================
+
+        public static byte[] BuildModifiedEra(
+            EraArchiveInfo archive,
+            IReadOnlyDictionary<int, byte[]>
+                replacementFiles,
+            IReadOnlyDictionary<int, string>
+                fileRenames,
+            IReadOnlyList<EraFileAddition>
+                fileAdditions)
+        {
+            ArgumentNullException.ThrowIfNull(
+                archive);
+
+            ArgumentNullException.ThrowIfNull(
+                replacementFiles);
+
+            ArgumentNullException.ThrowIfNull(
+                fileRenames);
+
+            ArgumentNullException.ThrowIfNull(
+                fileAdditions);
+
 
             if (replacementFiles.Count ==
                     0 &&
                 fileRenames.Count ==
+                    0 &&
+                fileAdditions.Count ==
                     0)
             {
                 throw new ArgumentException(
-                    "At least one ERA replacement or " +
-                    "filename change is required.");
+                    "At least one ERA replacement, filename change " +
+                    "or new file is required.");
             }
+
 
             if (!archive.IsEncrypted)
             {
@@ -117,15 +135,93 @@ namespace Ensemble.Services
             }
 
 
+            if (archive.ChunkExtraDataSize <
+                32)
+            {
+                throw new InvalidDataException(
+                    "ERA chunk metadata is too small to contain " +
+                    "Halo Wars filename/hash metadata.");
+            }
+
+
+            int originalChunkCount =
+                archive.Chunks.Count;
+
+
+            int finalChunkCount =
+                checked(
+                    originalChunkCount +
+                    fileAdditions.Count);
+
+
+            if (finalChunkCount >
+                ushort.MaxValue)
+            {
+                throw new InvalidDataException(
+                    "ERA chunk count exceeded the 16-bit archive limit.");
+            }
+
+
             int chunkHeaderSize =
                 checked(
                     BaseChunkHeaderSize +
                     archive.ChunkExtraDataSize);
 
-            int chunkTableSize =
+
+            int originalChunkTableSize =
                 checked(
-                    archive.Chunks.Count *
+                    originalChunkCount *
                     chunkHeaderSize);
+
+
+            int finalChunkTableSize =
+                checked(
+                    finalChunkCount *
+                    chunkHeaderSize);
+
+
+            // =====================================================
+            // VALIDATE / NORMALIZE NEW FILES
+            // =====================================================
+
+            List<string> normalizedAdditionNames =
+                new List<string>(
+                    fileAdditions.Count);
+
+
+            foreach (EraFileAddition addition
+                     in fileAdditions)
+            {
+                if (addition.Data ==
+                    null)
+                {
+                    throw new InvalidDataException(
+                        "An ERA file addition contains no data.");
+                }
+
+
+                if (addition.CompressionMethod is not
+                    (0 or 1 or 2))
+                {
+                    throw new InvalidDataException(
+                        "New ERA files support compression methods " +
+                        "0 (Stored), 1 (Raw Deflate), or " +
+                        "2 (Deflate Stream).");
+                }
+
+
+                if (addition.AlignmentLog2 >=
+                    31)
+                {
+                    throw new InvalidDataException(
+                        "New ERA file alignment is too large.");
+                }
+
+
+                normalizedAdditionNames.Add(
+                    NormalizeArchiveFilename(
+                        addition.FileName));
+            }
 
 
             using FileStream originalStream =
@@ -137,7 +233,7 @@ namespace Ensemble.Services
 
 
             // -----------------------------------------------------
-            // Decrypt original archive header and chunk table.
+            // Decrypt original archive header and ORIGINAL table.
             // -----------------------------------------------------
 
             byte[] header =
@@ -147,25 +243,44 @@ namespace Ensemble.Services
                     checked(
                         (int)archive.HeaderSize));
 
-            byte[] chunkTable =
+
+            byte[] originalChunkTable =
                 EraCryptoService.DecryptRange(
                     originalStream,
                     archive.HeaderSize,
-                    chunkTableSize);
+                    originalChunkTableSize);
+
+
+            // New table is zero-initialized after the old table.
+            // Added chunk headers will be written into that region.
+            byte[] chunkTable =
+                new byte[
+                    finalChunkTableSize];
+
+
+            Buffer.BlockCopy(
+                originalChunkTable,
+                0,
+                chunkTable,
+                0,
+                originalChunkTable.Length);
+
+
+            // Update NumChunks inside the decrypted archive header.
+            WriteUInt16(
+                header,
+                16,
+                checked(
+                    (ushort)finalChunkCount));
 
 
             // -----------------------------------------------------
-            // Read raw STORED chunk data.
-            //
-            // IMPORTANT:
-            //
-            // Every unchanged file keeps its original compressed
-            // representation byte-for-byte.
+            // Read raw STORED bytes for all existing chunks.
             // -----------------------------------------------------
 
             List<byte[]> storedChunks =
                 new List<byte[]>(
-                    archive.Chunks.Count);
+                    finalChunkCount);
 
 
             foreach (EraChunkInfo chunk
@@ -178,55 +293,48 @@ namespace Ensemble.Services
                         checked(
                             (int)chunk.CompressedSize));
 
+
                 storedChunks.Add(
                     data);
             }
 
 
             // -----------------------------------------------------
-            // Metadata which must be changed for modified chunks.
+            // Metadata changed for existing modified chunks.
             // -----------------------------------------------------
 
             Dictionary<int, ulong>
                 replacementIds =
                     new();
 
+
             Dictionary<int, byte[]>
                 replacementTiger128 =
                     new();
+
 
             Dictionary<int, int>
                 replacementDecompressedSizes =
                     new();
 
 
+            // Name offsets for new appended chunks.
+            List<int> additionNameOffsets =
+                new List<int>(
+                    fileAdditions.Count);
+
+
             // =====================================================
-            // OPTIONAL ERA FILENAME RENAMES
-            // =====================================================
+            // FILENAME TABLE
             //
-            // Chunk 0 contains the compressed filename table.
-            //
-            // Each normal chunk stores a 24-bit offset into that
-            // decompressed filename table at bytes 52-54 of its
-            // extended ERA chunk header.
-            //
-            // Rather than disturbing existing names/offsets,
-            // Ensemble appends new names to the existing table
-            // and redirects renamed chunks to those new strings.
+            // Any rename OR addition modifies chunk 0.
             // =====================================================
 
             if (fileRenames.Count >
-                0)
+                    0 ||
+                fileAdditions.Count >
+                    0)
             {
-                if (archive.ChunkExtraDataSize <
-                    32)
-                {
-                    throw new InvalidDataException(
-                        "ERA chunk metadata is too small " +
-                        "to contain filename offsets.");
-                }
-
-
                 if (archive.Chunks.Count ==
                     0)
                 {
@@ -270,6 +378,10 @@ namespace Ensemble.Services
                         StringComparer.OrdinalIgnoreCase);
 
 
+                // -------------------------------------------------
+                // Existing-file renames
+                // -------------------------------------------------
+
                 foreach (
                     KeyValuePair<int, string> rename
                     in fileRenames)
@@ -281,7 +393,7 @@ namespace Ensemble.Services
                     if (targetIndex <=
                             0 ||
                         targetIndex >=
-                            archive.Chunks.Count)
+                            originalChunkCount)
                     {
                         throw new InvalidDataException(
                             $"Invalid ERA rename chunk index: " +
@@ -321,70 +433,57 @@ namespace Ensemble.Services
                     finalNames.Remove(
                         targetChunk.FileName);
 
+
                     finalNames.Add(
                         newName);
 
 
                     int newNameOffset =
-                        newFilenameData.Count;
-
-
-                    if (newNameOffset >
-                        0x00FFFFFF)
-                    {
-                        throw new InvalidDataException(
-                            "ERA filename table exceeded its " +
-                            "24-bit offset limit.");
-                    }
-
-
-                    byte[] nameBytes =
-                        Encoding.ASCII.GetBytes(
+                        AppendFilename(
+                            newFilenameData,
                             newName);
 
 
-                    newFilenameData.AddRange(
-                        nameBytes);
-
-                    newFilenameData.Add(
-                        0);
-
-
-                    int p =
+                    WriteNameOffset(
+                        chunkTable,
                         checked(
                             targetIndex *
-                            chunkHeaderSize);
+                            chunkHeaderSize),
+                        newNameOffset);
+                }
 
 
-                    // -------------------------------------------------
-                    // NameOffset is a 24-bit BIG-ENDIAN value.
-                    //
-                    // Existing reader:
-                    //
-                    // byte 52 << 16
-                    // byte 53 << 8
-                    // byte 54
-                    // -------------------------------------------------
+                // -------------------------------------------------
+                // Brand-new files
+                // -------------------------------------------------
 
-                    chunkTable[
-                        p + 52] =
-                            (byte)(
-                                (newNameOffset >>
-                                 16) &
-                                0xFF);
+                for (int i = 0;
+                     i < fileAdditions.Count;
+                     i++)
+                {
+                    string newName =
+                        normalizedAdditionNames[
+                            i];
 
-                    chunkTable[
-                        p + 53] =
-                            (byte)(
-                                (newNameOffset >>
-                                 8) &
-                                0xFF);
 
-                    chunkTable[
-                        p + 54] =
-                            (byte)(
-                                newNameOffset &
-                                0xFF);
+                    if (!finalNames.Add(
+                            newName))
+                    {
+                        throw new InvalidDataException(
+                            "The custom ERA would contain " +
+                            "duplicate archive filenames.\n\n" +
+                            newName);
+                    }
+
+
+                    int newNameOffset =
+                        AppendFilename(
+                            newFilenameData,
+                            newName);
+
+
+                    additionNameOffsets.Add(
+                        newNameOffset);
                 }
 
 
@@ -394,8 +493,7 @@ namespace Ensemble.Services
 
 
                 // -------------------------------------------------
-                // Verify shipping filename-table Tiger128
-                // before replacing it.
+                // Verify the original shipping filename chunk.
                 // -------------------------------------------------
 
                 byte[] originalTiger128 =
@@ -414,12 +512,6 @@ namespace Ensemble.Services
                         "verification failed.");
                 }
 
-
-                // -------------------------------------------------
-                // ERA chunk ID:
-                //
-                // Tiger64 of DECOMPRESSED contents.
-                // -------------------------------------------------
 
                 ulong newFilenameId =
                     EraHashService
@@ -454,7 +546,7 @@ namespace Ensemble.Services
 
 
             // =====================================================
-            // FILE CONTENT REPLACEMENTS
+            // EXISTING FILE CONTENT REPLACEMENTS
             // =====================================================
 
             foreach (
@@ -468,7 +560,7 @@ namespace Ensemble.Services
                 if (targetIndex <=
                         0 ||
                     targetIndex >=
-                        archive.Chunks.Count)
+                        originalChunkCount)
                 {
                     throw new InvalidDataException(
                         $"Invalid replacement ERA chunk index: " +
@@ -493,10 +585,6 @@ namespace Ensemble.Services
                         targetIndex];
 
 
-                // -------------------------------------------------
-                // Verify compressed Tiger128 against current ERA.
-                // -------------------------------------------------
-
                 byte[] existingTiger128 =
                     EraHashService.Tiger128(
                         originalStoredData);
@@ -514,10 +602,6 @@ namespace Ensemble.Services
                 }
 
 
-                // -------------------------------------------------
-                // Chunk ID = Tiger64 of DECOMPRESSED file data.
-                // -------------------------------------------------
-
                 byte[] originalDecompressedData =
                     EraExtractionService.ExtractChunk(
                         archive,
@@ -532,20 +616,10 @@ namespace Ensemble.Services
                             replacementDecompressedData);
 
 
-                // -------------------------------------------------
-                // Recompress using the SAME compression method
-                // as the original chunk.
-                // -------------------------------------------------
-
                 byte[] replacementStoredData =
                     EncodeReplacementChunk(
                         chunk,
                         replacementDecompressedData);
-
-
-                byte[] newTiger128 =
-                    EraHashService.Tiger128(
-                        replacementStoredData);
 
 
                 replacementIds[
@@ -555,7 +629,8 @@ namespace Ensemble.Services
 
                 replacementTiger128[
                     targetIndex] =
-                        newTiger128;
+                        EraHashService.Tiger128(
+                            replacementStoredData);
 
 
                 replacementDecompressedSizes[
@@ -570,36 +645,199 @@ namespace Ensemble.Services
 
 
             // =====================================================
+            // BRAND-NEW FILE CHUNK HEADERS
+            // =====================================================
+
+            ulong inheritedFileDate =
+                archive.Chunks
+                    .Skip(1)
+                    .Select(
+                        x =>
+                            x.Date)
+                    .FirstOrDefault(
+                        x =>
+                            x != 0);
+
+
+            for (int i = 0;
+                 i < fileAdditions.Count;
+                 i++)
+            {
+                EraFileAddition addition =
+                    fileAdditions[
+                        i];
+
+
+                byte[] decompressedData =
+                    addition.Data;
+
+
+                byte[] storedData =
+                    EncodeAddedChunk(
+                        addition.CompressionMethod,
+                        decompressedData);
+
+
+                int chunkIndex =
+                    checked(
+                        originalChunkCount +
+                        i);
+
+
+                int p =
+                    checked(
+                        chunkIndex *
+                        chunkHeaderSize);
+
+
+                ulong chunkId =
+                    EraHashService.Tiger64(
+                        decompressedData);
+
+
+                byte[] compressedTiger128 =
+                    EraHashService.Tiger128(
+                        storedData);
+
+
+                // Chunk ID
+                WriteUInt64(
+                    chunkTable,
+                    p,
+                    chunkId);
+
+
+                // Offset is assigned during the common data-writing pass.
+
+
+                // Compressed size
+                WriteUInt32(
+                    chunkTable,
+                    p + 12,
+                    checked(
+                        (uint)storedData.Length));
+
+
+                // Adler32 of stored/compressed bytes
+                WriteUInt32(
+                    chunkTable,
+                    p + 16,
+                    EraCompressionService
+                        .Adler32(
+                            storedData));
+
+
+                // Compression flags
+                chunkTable[
+                    p + 20] =
+                        addition.CompressionMethod;
+
+
+                // Alignment
+                chunkTable[
+                    p + 21] =
+                        addition.AlignmentLog2;
+
+
+                // Resource flags
+                WriteUInt16(
+                    chunkTable,
+                    p + 22,
+                    addition.ResourceFlags);
+
+
+                // File timestamp
+                WriteUInt64(
+                    chunkTable,
+                    p + 24,
+                    addition.Date
+                    ?? inheritedFileDate);
+
+
+                // Decompressed size
+                WriteUInt32(
+                    chunkTable,
+                    p + 32,
+                    checked(
+                        (uint)decompressedData.Length));
+
+
+                // Tiger128 of stored/compressed bytes
+                Buffer.BlockCopy(
+                    compressedTiger128,
+                    0,
+                    chunkTable,
+                    p + 36,
+                    16);
+
+
+                // Filename offset
+                WriteNameOffset(
+                    chunkTable,
+                    p,
+                    additionNameOffsets[
+                        i]);
+
+
+                // Final byte in the 32-byte extension is unused
+                // in the DE archives inspected so far.
+                chunkTable[
+                    p + 55] =
+                        0;
+
+
+                storedChunks.Add(
+                    storedData);
+            }
+
+
+            if (storedChunks.Count !=
+                finalChunkCount)
+            {
+                throw new InvalidDataException(
+                    "Internal ERA rebuild chunk count mismatch.");
+            }
+
+
+            // =====================================================
             // REBUILD PLAINTEXT ARCHIVE
             // =====================================================
 
             int dataStart =
                 checked(
                     (int)archive.HeaderSize +
-                    chunkTableSize);
+                    finalChunkTableSize);
 
 
             using MemoryStream output =
                 new MemoryStream();
 
 
-            // Reserve space for archive header + chunk table.
             output.Write(
-                new byte[dataStart]);
+                new byte[
+                    dataStart]);
 
 
             for (int i = 0;
-                 i < archive.Chunks.Count;
+                 i < finalChunkCount;
                  i++)
             {
-                EraChunkInfo chunk =
-                    archive.Chunks[i];
+                byte alignmentLog2 =
+                    i <
+                    originalChunkCount
+                        ? archive.Chunks[
+                            i]
+                            .AlignmentLog2
+                        : fileAdditions[
+                            i -
+                            originalChunkCount]
+                            .AlignmentLog2;
 
 
                 int alignment =
                     checked(
                         1 <<
-                        chunk.AlignmentLog2);
+                        alignmentLog2);
 
 
                 Align(
@@ -621,7 +859,8 @@ namespace Ensemble.Services
 
 
                 byte[] data =
-                    storedChunks[i];
+                    storedChunks[
+                        i];
 
 
                 output.Write(
@@ -636,19 +875,11 @@ namespace Ensemble.Services
                         chunkHeaderSize);
 
 
-                // -------------------------------------------------
-                // New location
-                // -------------------------------------------------
-
                 WriteUInt32(
                     chunkTable,
                     p + 8,
                     newOffset);
 
-
-                // -------------------------------------------------
-                // New compressed size
-                // -------------------------------------------------
 
                 WriteUInt32(
                     chunkTable,
@@ -656,10 +887,6 @@ namespace Ensemble.Services
                     checked(
                         (uint)data.Length));
 
-
-                // -------------------------------------------------
-                // Adler32 of STORED data
-                // -------------------------------------------------
 
                 WriteUInt32(
                     chunkTable,
@@ -669,22 +896,18 @@ namespace Ensemble.Services
                             data));
 
 
-                // -------------------------------------------------
-                // Modified file metadata
-                // -------------------------------------------------
-
+                // Existing modified chunks need updated content
+                // identity metadata. New chunks already have it.
                 if (replacementIds.TryGetValue(
                         i,
                         out ulong replacementId))
                 {
-                    // Tiger64 / chunk ID
                     WriteUInt64(
                         chunkTable,
                         p,
                         replacementId);
 
 
-                    // Decompressed size
                     WriteUInt32(
                         chunkTable,
                         p + 32,
@@ -694,7 +917,6 @@ namespace Ensemble.Services
                                 i]));
 
 
-                    // Tiger128 of compressed data
                     Buffer.BlockCopy(
                         replacementTiger128[
                             i],
@@ -709,17 +931,10 @@ namespace Ensemble.Services
             // =====================================================
             // FINAL ERA GUARD PADDING
             // =====================================================
-            //
-            // Halo Wars BECFArchiver ALWAYS writes 4095 zero
-            // bytes after the final chunk, then aligns the
-            // completed archive to 4096.
-            //
-            // This behaviour was required for rebuilt ERAs to
-            // match the structure expected by Halo Wars DE.
-            // =====================================================
 
             byte[] trailingGuardPadding =
-                new byte[4095];
+                new byte[
+                    4095];
 
 
             output.Write(
@@ -766,10 +981,7 @@ namespace Ensemble.Services
                 chunkTable.Length);
 
 
-            // -----------------------------------------------------
             // Update archive FileSize.
-            // -----------------------------------------------------
-
             WriteUInt32(
                 plaintext,
                 12,
@@ -777,10 +989,7 @@ namespace Ensemble.Services
                     (uint)plaintext.Length));
 
 
-            // -----------------------------------------------------
             // Recalculate archive header Adler32.
-            // -----------------------------------------------------
-
             WriteUInt32(
                 plaintext,
                 8,
@@ -802,17 +1011,89 @@ namespace Ensemble.Services
                 headerAdler);
 
 
-            // -----------------------------------------------------
-            // The original archive signature bytes remain present
-            // in the header.
-            //
-            // Modified archives rely on Ensemble's Halo Wars EXE
-            // signature-check patch.
-            // -----------------------------------------------------
-
+            // Original shipping signature bytes remain in the
+            // archive header. Modified archives rely on Ensemble's
+            // xgameFinal signature-check bypass.
             return
                 EraCryptoService.EncryptAll(
                     plaintext);
+        }
+
+
+        // =========================================================
+        // FILENAME HELPERS
+        // =========================================================
+
+        private static int AppendFilename(
+            List<byte> filenameData,
+            string name)
+        {
+            int offset =
+                filenameData.Count;
+
+
+            if (offset >
+                0x00FFFFFF)
+            {
+                throw new InvalidDataException(
+                    "ERA filename table exceeded its " +
+                    "24-bit offset limit.");
+            }
+
+
+            byte[] bytes =
+                Encoding.ASCII.GetBytes(
+                    name);
+
+
+            filenameData.AddRange(
+                bytes);
+
+
+            filenameData.Add(
+                0);
+
+
+            return offset;
+        }
+
+
+        private static void WriteNameOffset(
+            byte[] chunkTable,
+            int chunkHeaderOffset,
+            int nameOffset)
+        {
+            if (nameOffset <
+                    0 ||
+                nameOffset >
+                    0x00FFFFFF)
+            {
+                throw new InvalidDataException(
+                    "ERA filename offset exceeded its 24-bit limit.");
+            }
+
+
+            chunkTable[
+                chunkHeaderOffset + 52] =
+                    (byte)(
+                        (nameOffset >>
+                         16) &
+                        0xFF);
+
+
+            chunkTable[
+                chunkHeaderOffset + 53] =
+                    (byte)(
+                        (nameOffset >>
+                         8) &
+                        0xFF);
+
+
+            chunkTable[
+                chunkHeaderOffset + 54] =
+                    (byte)(
+                        nameOffset &
+                        0xFF);
         }
 
 
@@ -911,13 +1192,28 @@ namespace Ensemble.Services
 
 
             stream.Write(
-                new byte[padding]);
+                new byte[
+                    padding]);
         }
 
 
         // =========================================================
         // BIG-ENDIAN WRITERS
         // =========================================================
+
+        private static void WriteUInt16(
+            byte[] data,
+            int offset,
+            ushort value)
+        {
+            BinaryPrimitives
+                .WriteUInt16BigEndian(
+                    data.AsSpan(
+                        offset,
+                        2),
+                    value);
+        }
+
 
         private static void WriteUInt32(
             byte[] data,
@@ -957,17 +1253,14 @@ namespace Ensemble.Services
         {
             return chunk.CompressionMethod switch
             {
-                // Stored
                 0 =>
                     decompressedData,
 
-                // Raw Deflate
                 1 =>
                     EraCompressionService
                         .CompressDeflateRaw(
                             decompressedData),
 
-                // Halo Wars Deflate Stream
                 2 =>
                     EraCompressionService
                         .CompressDeflateStream(
@@ -978,6 +1271,33 @@ namespace Ensemble.Services
                         $"ERA chunk {chunk.Index} uses unsupported " +
                         $"compression method " +
                         $"{chunk.CompressionMethod}.")
+            };
+        }
+
+
+        private static byte[] EncodeAddedChunk(
+            byte compressionMethod,
+            byte[] decompressedData)
+        {
+            return compressionMethod switch
+            {
+                0 =>
+                    decompressedData,
+
+                1 =>
+                    EraCompressionService
+                        .CompressDeflateRaw(
+                            decompressedData),
+
+                2 =>
+                    EraCompressionService
+                        .CompressDeflateStream(
+                            decompressedData),
+
+                _ =>
+                    throw new NotSupportedException(
+                        $"Unsupported ERA file-addition compression " +
+                        $"method {compressionMethod}.")
             };
         }
     }
