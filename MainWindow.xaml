@@ -112,7 +112,7 @@
                 <Separator/>
 
                 <MenuItem x:Name="ImportMapThumbnailMenuItem"
-              Header="Import _Thumbnail DDX..."
+              Header="Import _Thumbnail..."
               Click="ImportMapThumbnail_Click"
               IsEnabled="False"/>
 

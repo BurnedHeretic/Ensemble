@@ -5367,8 +5367,11 @@ namespace Ensemble
                         $"{sourceName}_ensemble.era",
 
                     Filter =
-                        "Halo Wars ERA (*.era)|*.era|" +
-                        "All Files (*.*)|*.*"
+                    "Thumbnail Images (*.png;*.jpg;*.jpeg;*.ddx)|*.png;*.jpg;*.jpeg;*.ddx|" +
+                    "PNG Images (*.png)|*.png|" +
+                    "JPEG Images (*.jpg;*.jpeg)|*.jpg;*.jpeg|" +
+                    "Halo Wars DDX (*.ddx)|*.ddx|" +
+                    "All Files (*.*)|*.*",
                 };
 
             if (dialog.ShowDialog(this) !=
@@ -6690,14 +6693,49 @@ namespace Ensemble
 
             try
             {
-                byte[] data =
-                    File.ReadAllBytes(
-                        dialog.FileName);
+                string extension =
+                    Path.GetExtension(
+                        dialog.FileName)
+                    .ToLowerInvariant();
 
 
-                DdxTextureService
-                    .ValidateMapThumbnail(
-                        data);
+                byte[] data;
+
+
+                switch (extension)
+                {
+                    case ".png":
+                    case ".jpg":
+                    case ".jpeg":
+                        StatusText.Text =
+                            "Converting thumbnail to Halo Wars DDX...";
+
+
+                        data =
+                            ThumbnailImageConversionService
+                                .ConvertToMapThumbnail(
+                                    dialog.FileName);
+
+                        break;
+
+
+                    case ".ddx":
+                        data =
+                            File.ReadAllBytes(
+                                dialog.FileName);
+
+
+                        DdxTextureService
+                            .ValidateMapThumbnail(
+                                data);
+
+                        break;
+
+
+                    default:
+                        throw new InvalidDataException(
+                            "Unsupported thumbnail image format.");
+                }
 
 
                 _pendingThumbnailDdxData =
