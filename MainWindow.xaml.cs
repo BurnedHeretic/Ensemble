@@ -5367,11 +5367,8 @@ namespace Ensemble
                         $"{sourceName}_ensemble.era",
 
                     Filter =
-                    "Thumbnail Images (*.png;*.jpg;*.jpeg;*.ddx)|*.png;*.jpg;*.jpeg;*.ddx|" +
-                    "PNG Images (*.png)|*.png|" +
-                    "JPEG Images (*.jpg;*.jpeg)|*.jpg;*.jpeg|" +
-                    "Halo Wars DDX (*.ddx)|*.ddx|" +
-                    "All Files (*.*)|*.*",
+                    "Halo Wars ERA (*.era)|*.era|" +
+                    "All Files (*.*)|*.*"
                 };
 
             if (dialog.ShowDialog(this) !=
@@ -6672,8 +6669,11 @@ namespace Ensemble
                         "Import Halo Wars Map Thumbnail",
 
                     Filter =
-                        "Halo Wars DDX (*.ddx)|*.ddx|" +
-                        "All Files (*.*)|*.*",
+                    "Thumbnail Images (*.png;*.jpg;*.jpeg;*.ddx)|*.png;*.jpg;*.jpeg;*.ddx|" +
+                    "PNG Images (*.png)|*.png|" +
+                    "JPEG Images (*.jpg;*.jpeg)|*.jpg;*.jpeg|" +
+                    "Halo Wars DDX (*.ddx)|*.ddx|" +
+                    "All Files (*.*)|*.*",
 
                     CheckFileExists =
                         true,
