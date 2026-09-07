@@ -51,6 +51,29 @@ namespace Ensemble
         private byte[]?
             _currentTerrainOriginalXtdData;
 
+
+        // =========================================================
+        // TERRAIN TEXTURE / XTT
+        // =========================================================
+
+        private EraChunkInfo?
+            _currentTerrainTextureChunk;
+
+        private byte[]?
+            _currentTerrainOriginalXttData;
+
+        private bool
+            _terrainTextureDirty;
+
+        private Dictionary<int, byte[]>?
+            _pendingTerrainMaterialReplacements;
+
+
+        private List<string>
+            _pendingTerrainMaterialPaths =
+                new();
+
+
         private EraChunkInfo?
             _currentSimulationChunk;
 
@@ -477,6 +500,29 @@ namespace Ensemble
             _currentTerrainOriginalXtdData =
                 null;
 
+            ScenarioMapCanvas.SetTerrainTextureMap(
+                null);
+
+
+            _currentTerrainTextureChunk =
+                null;
+
+
+            _currentTerrainOriginalXttData =
+                null;
+
+
+            _pendingTerrainMaterialReplacements =
+                null;
+
+
+            _pendingTerrainMaterialPaths
+                .Clear();
+
+
+            _terrainTextureDirty =
+                false;
+
             _currentSimulationChunk =
                 null;
 
@@ -502,6 +548,8 @@ namespace Ensemble
                 false;
 
             ImportMapThumbnailMenuItem.IsEnabled = false;
+
+            ImportTerrainTextureMenuItem.IsEnabled = false;
 
             _undoStack.Clear();
 
@@ -1390,6 +1438,10 @@ namespace Ensemble
                         TryLoadTerrainTextureMap(
                             map);
 
+                    ImportTerrainTextureMenuItem.IsEnabled =
+                        terrainTexture !=
+                        null;
+
                     TerrainSimulationMap? simulation =
                         TryLoadTerrainSimulationMap(
                             map,
@@ -2080,11 +2132,24 @@ namespace Ensemble
                     .ToList();
 
             if (candidates.Count ==
-                0)
+    0)
             {
                 ScenarioMapCanvas
                     .SetTerrainTextureMap(
                         null);
+
+
+                _currentTerrainTextureChunk =
+                    null;
+
+
+                _currentTerrainOriginalXttData =
+                    null;
+
+
+                _terrainTextureDirty =
+                    false;
+
 
                 return null;
             }
@@ -2129,6 +2194,19 @@ namespace Ensemble
                     .SetTerrainTextureMap(
                         null);
 
+
+                _currentTerrainTextureChunk =
+                    null;
+
+
+                _currentTerrainOriginalXttData =
+                    null;
+
+
+                _terrainTextureDirty =
+                    false;
+
+
                 return null;
             }
 
@@ -2137,6 +2215,21 @@ namespace Ensemble
                 EraExtractionService.ExtractChunk(
                     _currentArchive,
                     terrainChunk);
+
+
+            // Keep the exact native XTT as our save/rebuild baseline.
+
+            _currentTerrainTextureChunk =
+                terrainChunk;
+
+
+            _currentTerrainOriginalXttData =
+                xttData.ToArray();
+
+
+            _terrainTextureDirty =
+                false;
+
 
             TerrainTextureMap terrain =
                 TerrainXttService.Read(
@@ -2912,12 +3005,13 @@ namespace Ensemble
                 _currentRevisionId !=
                 _savedRevisionId
                 ||
-                ScenarioMapCanvas
-        .HasTerrainPreviewChanges
-        ||
-        _metadataDirty
-        ||
-        _thumbnailDirty;
+                ScenarioMapCanvas.HasTerrainPreviewChanges
+                ||
+                _metadataDirty
+                ||
+                _thumbnailDirty
+                ||
+                _terrainTextureDirty;
 
             UpdateWindowTitle();
         }
@@ -4971,6 +5065,179 @@ namespace Ensemble
         // =========================================================
         // Terrain
         // ========================================================
+        private void ImportTerrainTexture_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentArchive ==
+                    null ||
+                _currentTerrainTextureChunk ==
+                    null ||
+                _currentTerrainOriginalXttData ==
+                    null)
+            {
+                MessageBox.Show(
+                    this,
+
+                    "Ensemble could not find the current map's " +
+                    "XTT terrain texture.",
+
+                    "Terrain Texture Unavailable",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+
+                return;
+            }
+
+
+            OpenFileDialog dialog =
+                new OpenFileDialog
+                {
+                    Title =
+                        "Import Halo Wars Terrain Texture",
+
+                    Filter =
+                        "Image Files (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg|" +
+                        "PNG Images (*.png)|*.png|" +
+                        "JPEG Images (*.jpg;*.jpeg)|*.jpg;*.jpeg|" +
+                        "All Files (*.*)|*.*",
+
+                    CheckFileExists =
+                        true,
+
+                    Multiselect =
+                        false
+                };
+
+
+            if (dialog.ShowDialog(
+                    this) !=
+                true)
+            {
+                return;
+            }
+
+
+            try
+            {
+                string extension =
+                    Path.GetExtension(
+                        dialog.FileName)
+                    .ToLowerInvariant();
+
+
+                if (extension is not
+                    (".png" or
+                     ".jpg" or
+                     ".jpeg"))
+                {
+                    throw new InvalidDataException(
+                        "Unsupported terrain texture image format.");
+                }
+
+
+                // =========================================================
+                // BUILD THE REAL IN-GAME TERRAIN MATERIAL DDX FILES
+                // =========================================================
+
+                StatusText.Text =
+                    "Converting terrain material textures...";
+
+
+                TerrainMaterialTextureService.ImportResult
+                    materialImport =
+                        TerrainMaterialTextureService
+                            .BuildDiffuseReplacements(
+                                _currentArchive,
+                                _currentTerrainOriginalXttData,
+                                dialog.FileName);
+
+
+                if (materialImport.Replacements.Count ==
+                    0)
+                {
+                    throw new InvalidDataException(
+                        "No terrain material textures were generated.");
+                }
+
+
+                // =========================================================
+                // EDITOR PREVIEW ONLY
+                //
+                // The editor currently displays XTT 0x6666.
+                //
+                // Build a temporary modified XTT so the imported artwork
+                // remains visible in Ensemble.
+                //
+                // IMPORTANT:
+                // This XTT is NOT queued into the ERA.
+                // =========================================================
+
+                StatusText.Text =
+                    "Building terrain preview...";
+
+
+                byte[] previewXtt =
+                    TerrainTextureImageConversionService
+                        .ReplaceXttAlbedoFromImage(
+                            _currentTerrainOriginalXttData,
+                            dialog.FileName);
+
+
+                TerrainTextureMap preview =
+                    TerrainXttService.Read(
+                        previewXtt);
+
+
+                // =========================================================
+                // QUEUE REAL MATERIAL REPLACEMENTS
+                // =========================================================
+
+                _pendingTerrainMaterialReplacements =
+                    materialImport.Replacements;
+
+
+                _pendingTerrainMaterialPaths =
+                    materialImport.ArchivePaths
+                        .ToList();
+
+
+                _terrainTextureDirty =
+                    true;
+
+
+                ScenarioMapCanvas
+                    .SetTerrainTextureMap(
+                        preview);
+
+
+                UpdateDirtyState();
+
+
+                StatusText.Text =
+                    $"Terrain texture queued | " +
+                    $"{materialImport.Replacements.Count} diffuse materials | " +
+                    "Save the ERA to embed them.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+
+                    "Terrain Texture Import Failed",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+
+                StatusText.Text =
+                    "Terrain texture import failed.";
+            }
+        }
+
         private void TerrainTexture_Click(
             object sender,
             RoutedEventArgs e)
@@ -5537,6 +5804,28 @@ namespace Ensemble
                         encodedTerrain);
                 }
 
+                Dictionary<int, byte[]>?
+                    terrainMaterialReplacements =
+                    null;
+
+
+                if (_terrainTextureDirty)
+                {
+                    if (_pendingTerrainMaterialReplacements ==
+                            null ||
+                        _pendingTerrainMaterialReplacements.Count ==
+                            0)
+                    {
+                        throw new InvalidDataException(
+                            "Terrain textures were edited, but Ensemble " +
+                            "no longer has the generated terrain material data.");
+                    }
+
+
+                    terrainMaterialReplacements =
+                        _pendingTerrainMaterialReplacements;
+                }
+
 
                 // =========================================================
                 // STRUCTURAL CHANGE STATE
@@ -5605,6 +5894,33 @@ namespace Ensemble
                     replacements[
                         _currentSimulationChunk.Index] =
                             modifiedXsd;
+                }
+
+                // =========================================================
+                // TERRAIN MATERIAL DIFFUSE TEXTURES
+                // =========================================================
+
+                if (terrainMaterialReplacements !=
+                    null)
+                {
+                    foreach (
+                        KeyValuePair<int, byte[]> replacement
+                        in terrainMaterialReplacements)
+                    {
+                        if (replacements.ContainsKey(
+                                replacement.Key))
+                        {
+                            throw new InvalidDataException(
+                                "A terrain material replacement collided " +
+                                "with another ERA replacement.\n\n" +
+                                $"Chunk: {replacement.Key}");
+                        }
+
+
+                        replacements[
+                            replacement.Key] =
+                                replacement.Value;
+                    }
                 }
 
 
@@ -6134,6 +6450,63 @@ namespace Ensemble
                             verificationThumbnail);
                 }
 
+                // =========================================================
+                // VERIFY TERRAIN MATERIAL DIFFUSE TEXTURES
+                // =========================================================
+
+                if (terrainMaterialReplacements !=
+                    null)
+                {
+                    foreach (
+                        KeyValuePair<int, byte[]> expectedMaterial
+                        in terrainMaterialReplacements)
+                    {
+                        int chunkIndex =
+                            expectedMaterial.Key;
+
+
+                        if (chunkIndex <=
+                                0 ||
+                            chunkIndex >=
+                                verificationArchive.Chunks.Count)
+                        {
+                            throw new InvalidDataException(
+                                "Saved ERA lost a terrain material chunk.\n\n" +
+                                $"Chunk: {chunkIndex}");
+                        }
+
+
+                        EraChunkInfo verificationMaterialChunk =
+                            verificationArchive
+                                .Chunks[
+                                    chunkIndex];
+
+
+                        byte[] verificationMaterial =
+                            EraExtractionService
+                                .ExtractChunk(
+                                    verificationArchive,
+                                    verificationMaterialChunk);
+
+
+                        if (!verificationMaterial
+                                .AsSpan()
+                                .SequenceEqual(
+                                    expectedMaterial.Value))
+                        {
+                            throw new InvalidDataException(
+                                "Terrain material failed ERA round-trip " +
+                                "verification.\n\n" +
+                                verificationMaterialChunk.FileName);
+                        }
+
+
+                        TerrainMaterialTextureService
+                            .ValidateTerrainDiffuseDdx(
+                                verificationMaterial);
+                    }
+                }
+
 
                 // =========================================================
                 // VERIFY TERRAIN
@@ -6391,6 +6764,42 @@ namespace Ensemble
                     }
                 }
 
+                // =========================================================
+                // REFRESH TERRAIN TEXTURE BASELINE
+                // =========================================================
+
+                if (_currentTerrainTextureChunk !=
+                    null)
+                {
+                    if (_currentTerrainTextureChunk.Index >=
+                        savedArchive.Chunks.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Saved ERA lost the terrain XTT " +
+                            "chunk after reopening.");
+                    }
+
+
+                    EraChunkInfo savedTextureChunk =
+                        savedArchive.Chunks[
+                            _currentTerrainTextureChunk.Index];
+
+
+                    byte[] savedXtt =
+                        EraExtractionService
+                            .ExtractChunk(
+                                savedArchive,
+                                savedTextureChunk);
+
+
+                    _currentTerrainTextureChunk =
+                        savedTextureChunk;
+
+
+                    _currentTerrainOriginalXttData =
+                        savedXtt;
+                }
+
 
                 // =========================================================
                 // ACCEPT CURRENT STRUCTURAL STATE AS SAVED BASELINE
@@ -6468,6 +6877,17 @@ namespace Ensemble
 
                 _savedRevisionId =
                     _currentRevisionId;
+
+                _pendingTerrainMaterialReplacements =
+                    null;
+
+
+                _pendingTerrainMaterialPaths
+                    .Clear();
+
+
+                _terrainTextureDirty =
+                    false;
 
 
                 UpdateDirtyState();

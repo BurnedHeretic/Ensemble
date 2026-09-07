@@ -121,6 +121,13 @@
 
             <MenuItem Header="_Terrain">
 
+                <MenuItem x:Name="ImportTerrainTextureMenuItem"
+              Header="_Import Terrain Texture..."
+              Click="ImportTerrainTexture_Click"
+              IsEnabled="False"/>
+
+                <Separator/>
+
                 <MenuItem x:Name="TerrainTextureMenuItem"
               Header="Show _Texture"
               IsCheckable="True"
