@@ -22,12 +22,6 @@ namespace Ensemble.Services
         private const ulong FoliageQnChunkId =
             0xBBBB;
 
-        // Ensemble-specific disabled linker ID.
-        //
-        // Halo Wars' XTT loader does not handle this ID,
-        // so the original linker bytes remain preserved
-        // but are ignored by the game.
-
         private const int EcfBaseHeaderSize =
             32;
 

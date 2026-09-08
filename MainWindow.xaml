@@ -126,9 +126,9 @@
               Click="ImportTerrainTexture_Click"
               IsEnabled="False"/>
 
-                <MenuItem x:Name="RemoveAllFoliageMenuItem"
-                          Header="_Remove All Foliage"
-                          Click="RemoveAllFoliage_Click"
+                <MenuItem x:Name="RemoveAllVegetationMenuItem"
+                          Header="_Remove All Vegetation"
+                          Click="RemoveAllVegetation_Click"
                           IsEnabled="False"/>
 
                 <Separator/>

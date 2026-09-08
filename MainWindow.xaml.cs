@@ -51,6 +51,21 @@ namespace Ensemble
         private byte[]?
             _currentTerrainOriginalXtdData;
 
+        private EraChunkInfo?
+            _currentArtObjectsChunk;
+
+
+        private byte[]?
+            _currentArtObjectsOriginalSc2Data;
+
+
+        private byte[]?
+            _pendingArtObjectsSc2Replacement;
+
+
+        private bool
+            _artObjectsDirty;
+
 
         // =========================================================
         // TERRAIN TEXTURE / XTT
@@ -531,6 +546,21 @@ namespace Ensemble
             _pendingTerrainMaterialPaths
                 .Clear();
 
+            _currentArtObjectsChunk =
+                null;
+
+
+            _currentArtObjectsOriginalSc2Data =
+                null;
+
+
+            _pendingArtObjectsSc2Replacement =
+                null;
+
+
+            _artObjectsDirty =
+                false;
+
 
             _terrainTextureDirty =
                 false;
@@ -563,7 +593,7 @@ namespace Ensemble
 
             ImportTerrainTextureMenuItem.IsEnabled = false;
 
-            RemoveAllFoliageMenuItem.IsEnabled = false;
+            RemoveAllVegetationMenuItem.IsEnabled = false;
 
             FlattenTerrainMenuItem.IsEnabled = false;
 
@@ -1419,6 +1449,9 @@ namespace Ensemble
                     _currentScenarioChunk =
                         chunk;
 
+                    TryLoadScenarioArtObjects(
+                        chunk);
+
                     ExportScenarioXmbMenuItem.IsEnabled =
                         true;
 
@@ -1462,7 +1495,7 @@ namespace Ensemble
                         terrainTexture !=
                         null;
 
-                    RemoveAllFoliageMenuItem.IsEnabled =
+                    RemoveAllVegetationMenuItem.IsEnabled =
                         terrainTexture !=
                         null;
 
@@ -2426,54 +2459,130 @@ namespace Ensemble
                     .ToArray());
         }
 
-        private void RemoveAllFoliage_Click(
+        private void RemoveAllVegetation_Click(
             object sender,
             RoutedEventArgs e)
         {
-            if (_currentTerrainTextureChunk ==
-                    null ||
-                _currentTerrainOriginalXttData ==
-                    null)
+            ScenarioMap? scenario =
+                ScenarioMapCanvas.Scenario;
+
+
+            if (scenario ==
+                null)
             {
                 StatusText.Text =
-                    "No terrain XTT is loaded.";
+                    "No scenario is loaded.";
 
                 return;
             }
 
 
-            byte[] sourceXtt =
+            // =========================================================
+            // XTT FOLIAGE
+            //
+            // Small / procedural foliage stored inside the terrain XTT:
+            //
+            //     0xAAAA = foliage header / set information
+            //     0xBBBB = foliage quadtree data
+            // =========================================================
+
+            byte[]? sourceXtt =
                 _pendingTerrainXttReplacement
-                ?? _currentTerrainOriginalXttData;
+                ??
+                _currentTerrainOriginalXttData;
 
 
             int foliageChunkCount =
-                TerrainXttRebuildService
-                    .CountFoliageChunks(
-                        sourceXtt);
+                sourceXtt ==
+                    null
+                    ? 0
+                    : TerrainXttRebuildService
+                        .CountFoliageChunks(
+                            sourceXtt);
 
+
+            // =========================================================
+            // SC2 ART OBJECT VEGETATION
+            //
+            // Halo Wars also stores large decorative map scenery in the
+            // companion:
+            //
+            //     map.sc2.xmb
+            //
+            // Trees are expected to live here rather than in the main
+            // gameplay scenario object list.
+            // =========================================================
+
+            byte[]? sourceSc2 =
+                _pendingArtObjectsSc2Replacement
+                ??
+                _currentArtObjectsOriginalSc2Data;
+
+
+            int artVegetationCount =
+                sourceSc2 ==
+                    null
+                    ? 0
+                    : ScenarioArtObjectsService
+                        .CountVegetationObjects(
+                            sourceSc2);
+
+
+            // =========================================================
+            // MAIN SCN VEGETATION OBJECTS
+            //
+            // Keep this as a third cleanup route in case another map
+            // stores some vegetation directly in its normal scenario.
+            // =========================================================
+
+            List<ScenarioObject> vegetationObjects =
+                scenario
+                    .Objects
+                    .Where(
+                        IsVegetationScenarioObject)
+                    .ToList();
+
+
+            // =========================================================
+            // NOTHING TO REMOVE
+            // =========================================================
 
             if (foliageChunkCount ==
-                0)
+                    0 &&
+                artVegetationCount ==
+                    0 &&
+                vegetationObjects.Count ==
+                    0)
             {
                 StatusText.Text =
-                    "This map contains no terrain foliage.";
+                    "This map contains no recognised vegetation.";
 
                 return;
             }
 
+
+            // =========================================================
+            // CONFIRM
+            // =========================================================
 
             MessageBoxResult result =
                 MessageBox.Show(
                     this,
 
-                    "Remove all terrain foliage from this map?\n\n" +
-                    $"This will remove {foliageChunkCount} foliage " +
-                    "data chunks from the XTT.\n\n" +
-                    "Buildings, gameplay objects and terrain geometry " +
-                    "will not be removed.",
+                    "Remove all recognised vegetation from this map?\n\n" +
 
-                    "Remove All Foliage",
+                    $"XTT foliage chunks: {foliageChunkCount}\n" +
+
+                    $"SC2 ArtObject vegetation: " +
+                    $"{artVegetationCount}\n" +
+
+                    $"SCN vegetation objects: " +
+                    $"{vegetationObjects.Count}\n\n" +
+
+                    "Gameplay objects, bases, reactors and terrain " +
+                    "geometry will not be removed.",
+
+                    "Remove All Vegetation",
 
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Question);
@@ -2489,35 +2598,145 @@ namespace Ensemble
             try
             {
                 StatusText.Text =
-                    "Removing terrain foliage...";
+                    "Removing vegetation...";
 
 
-                byte[] modifiedXtt =
-                    TerrainXttRebuildService
-                        .RemoveAllFoliage(
-                            sourceXtt,
-                            out int removedCount);
+                int removedFoliageChunks =
+                    0;
 
 
-                // Full XTT parse as another sanity check.
-                TerrainXttService.Read(
-                    modifiedXtt);
+                int removedArtObjects =
+                    0;
 
 
-                _pendingTerrainXttReplacement =
-                    modifiedXtt;
+                // =====================================================
+                // REMOVE XTT FOLIAGE
+                // =====================================================
+
+                if (sourceXtt !=
+                        null &&
+                    foliageChunkCount >
+                        0)
+                {
+                    byte[] modifiedXtt =
+                        TerrainXttRebuildService
+                            .RemoveAllFoliage(
+                                sourceXtt,
+                                out removedFoliageChunks);
 
 
-                _terrainXttDirty =
-                    true;
+                    // Make sure the modified XTT is still valid and
+                    // readable before accepting it.
 
+                    TerrainXttService.Read(
+                        modifiedXtt);
+
+
+                    if (TerrainXttRebuildService
+                            .CountFoliageChunks(
+                                modifiedXtt) !=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "XTT vegetation removal failed verification.");
+                    }
+
+
+                    _pendingTerrainXttReplacement =
+                        modifiedXtt;
+
+
+                    _terrainXttDirty =
+                        true;
+                }
+
+
+                // =====================================================
+                // REMOVE SC2 ART OBJECT VEGETATION
+                // =====================================================
+
+                if (sourceSc2 !=
+                        null &&
+                    artVegetationCount >
+                        0)
+                {
+                    ScenarioArtObjectsService
+                        .VegetationRemovalResult
+                        artResult =
+                            ScenarioArtObjectsService
+                                .RemoveAllVegetation(
+                                    sourceSc2);
+
+
+                    if (artResult.RemovedObjectCount <=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "SC2 vegetation was detected, but no " +
+                            "ArtObjects were removed.");
+                    }
+
+
+                    if (ScenarioArtObjectsService
+                            .CountVegetationObjects(
+                                artResult.ModifiedXmb) !=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "SC2 vegetation removal failed verification.");
+                    }
+
+
+                    _pendingArtObjectsSc2Replacement =
+                        artResult.ModifiedXmb;
+
+
+                    _artObjectsDirty =
+                        true;
+
+
+                    removedArtObjects =
+                        artResult.RemovedObjectCount;
+                }
+
+
+                // =====================================================
+                // REMOVE MAIN SCN VEGETATION OBJECTS
+                //
+                // Use Ensemble's existing scenario-object deletion route.
+                // This means structural XMX rebuilding and normal scenario
+                // Save logic continue to handle these objects.
+                // =====================================================
+
+                foreach (ScenarioObject obj
+                         in vegetationObjects)
+                {
+                    ScenarioMapCanvas
+                        .DeleteScenarioObjectFromEditor(
+                            obj);
+                }
+
+
+                // =====================================================
+                // DIRTY STATE
+                // =====================================================
 
                 UpdateDirtyState();
 
 
+                // =====================================================
+                // COMPLETE
+                // =====================================================
+
                 StatusText.Text =
-                    $"Removed all foliage | " +
-                    $"{removedCount} XTT chunks removed | " +
+                    $"Vegetation removed | " +
+
+                    $"{removedFoliageChunks} XTT foliage chunks | " +
+
+                    $"{removedArtObjects} SC2 ArtObjects | " +
+
+                    $"{vegetationObjects.Count} SCN objects | " +
+
                     "Save the ERA to make it permanent.";
             }
             catch (Exception ex)
@@ -2526,15 +2745,227 @@ namespace Ensemble
                     this,
                     ex.ToString(),
 
-                    "Foliage Removal Failed",
+                    "Vegetation Removal Failed",
 
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
 
                 StatusText.Text =
-                    "Foliage removal failed.";
+                    "Vegetation removal failed.";
             }
+        }
+
+        private static bool IsVegetationScenarioObject(
+            ScenarioObject obj)
+        {
+            string text =
+                (
+                    obj.Type +
+                    " " +
+                    obj.EditorName +
+                    " " +
+                    obj.OriginalEditorName
+                )
+                .Replace(
+                    '\\',
+                    ' ')
+                .Replace(
+                    '/',
+                    ' ')
+                .Replace(
+                    '_',
+                    ' ')
+                .Replace(
+                    '-',
+                    ' ')
+                .ToLowerInvariant();
+
+
+            string[] tokens =
+                text.Split(
+                    ' ',
+                    StringSplitOptions.RemoveEmptyEntries);
+
+
+            foreach (string token
+                     in tokens)
+            {
+                // Trees
+                if (token ==
+                        "tree" ||
+                    token.EndsWith(
+                        "tree",
+                        StringComparison.Ordinal) ||
+                    token ==
+                        "pine" ||
+                    token.StartsWith(
+                        "pinetree",
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+
+                // Ground / decorative vegetation
+                if (token.Contains(
+                        "bush",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "shrub",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "fern",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "foliage",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "grass",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "flower",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "weed",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "reed",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "sapling",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "stump",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "cactus",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "palm",
+                        StringComparison.Ordinal) ||
+                    token.Contains(
+                        "vine",
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+
+            return false;
+        }
+
+        // =========================================================
+        // Scenario Art Objects
+        // ========================================================
+        private void TryLoadScenarioArtObjects(
+            EraChunkInfo scenarioChunk)
+        {
+            _currentArtObjectsChunk =
+                null;
+
+
+            _currentArtObjectsOriginalSc2Data =
+                null;
+
+
+            _pendingArtObjectsSc2Replacement =
+                null;
+
+
+            _artObjectsDirty =
+                false;
+
+
+            if (_currentArchive ==
+                null)
+            {
+                return;
+            }
+
+
+            string scenarioPath =
+                scenarioChunk
+                    .FileName
+                    .Replace(
+                        '/',
+                        '\\');
+
+
+            const string scenarioSuffix =
+                ".scn.xmb";
+
+
+            if (!scenarioPath.EndsWith(
+                    scenarioSuffix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+
+            string sc2Path =
+                scenarioPath[
+                    ..^scenarioSuffix.Length]
+                +
+                ".sc2.xmb";
+
+
+            List<EraChunkInfo> matches =
+                _currentArchive
+                    .Chunks
+                    .Where(
+                        chunk =>
+                            string.Equals(
+                                chunk.FileName
+                                    .Replace(
+                                        '/',
+                                        '\\'),
+                                sc2Path,
+                                StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+
+            if (matches.Count >
+                1)
+            {
+                throw new InvalidDataException(
+                    "The ERA contains multiple matching " +
+                    "SC2 ArtObjects files.\n\n" +
+                    sc2Path);
+            }
+
+
+            if (matches.Count ==
+                0)
+            {
+                return;
+            }
+
+
+            EraChunkInfo chunk =
+                matches[0];
+
+
+            byte[] data =
+                EraExtractionService
+                    .ExtractChunk(
+                        _currentArchive,
+                        chunk);
+
+
+            // Prove it's a valid readable XMB immediately.
+            XmbDocumentService.Read(
+                data);
+
+
+            _currentArtObjectsChunk =
+                chunk;
+
+
+            _currentArtObjectsOriginalSc2Data =
+                data;
         }
 
         private sealed class AddObjectHistoryAction :
@@ -3148,7 +3579,9 @@ namespace Ensemble
                 ||
                 _terrainTextureDirty
                 ||
-                _terrainXttDirty;
+                _terrainXttDirty
+                ||
+                _artObjectsDirty;
 
             UpdateWindowTitle();
         }
@@ -4127,8 +4560,8 @@ namespace Ensemble
         }
 
         private void RegisterCustomMap_Click(
-    object sender,
-    RoutedEventArgs e)
+            object sender,
+            RoutedEventArgs e)
         {
             if (_currentArchive ==
                     null ||
@@ -6040,6 +6473,39 @@ namespace Ensemble
                         modifiedTerrainXtt);
                 }
 
+                // VEGETATION / ART
+
+                byte[]?
+                    modifiedArtObjectsSc2 = null;
+
+
+                if (_artObjectsDirty)
+                {
+                    if (_currentArtObjectsChunk ==
+                            null ||
+                        _pendingArtObjectsSc2Replacement ==
+                            null)
+                    {
+                        throw new InvalidDataException(
+                            "SC2 ArtObjects were modified, but Ensemble " +
+                            "no longer has the data required to save them.");
+                    }
+
+
+                    modifiedArtObjectsSc2 =
+                        _pendingArtObjectsSc2Replacement;
+
+
+                    if (ScenarioArtObjectsService
+                            .CountVegetationObjects(
+                                modifiedArtObjectsSc2) !=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "Modified SC2 still contains recognised vegetation.");
+                    }
+                }
+
 
                 // =========================================================
                 // STRUCTURAL CHANGE STATE
@@ -6127,6 +6593,25 @@ namespace Ensemble
                     replacements[
                         _currentTerrainTextureChunk.Index] =
                             modifiedTerrainXtt;
+                }
+
+                if (modifiedArtObjectsSc2 !=
+                    null &&
+                    _currentArtObjectsChunk !=
+                    null)
+                {
+                    if (replacements.ContainsKey(
+                            _currentArtObjectsChunk.Index))
+                    {
+                        throw new InvalidDataException(
+                            "SC2 ArtObjects replacement collided with " +
+                            "another ERA replacement.");
+                    }
+
+
+                    replacements[
+                        _currentArtObjectsChunk.Index] =
+                            modifiedArtObjectsSc2;
                 }
 
                 // =========================================================
@@ -6675,6 +7160,44 @@ namespace Ensemble
                     expected,
                     verificationScenario);
 
+                if (modifiedArtObjectsSc2 !=
+                    null &&
+                    _currentArtObjectsChunk !=
+                    null)
+                {
+                    EraChunkInfo verificationSc2Chunk =
+                        verificationArchive
+                            .Chunks[
+                                _currentArtObjectsChunk.Index];
+
+
+                    byte[] verificationSc2 =
+                        EraExtractionService
+                            .ExtractChunk(
+                                verificationArchive,
+                                verificationSc2Chunk);
+
+
+                    if (!verificationSc2
+                            .AsSpan()
+                            .SequenceEqual(
+                                modifiedArtObjectsSc2))
+                    {
+                        throw new InvalidDataException(
+                            "SC2 ArtObjects failed ERA round-trip verification.");
+                    }
+
+
+                    if (ScenarioArtObjectsService
+                            .CountVegetationObjects(
+                                verificationSc2) !=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "Saved SC2 still contains recognised vegetation.");
+                    }
+                }
+
                 // =========================================================
                 // VERIFY CUSTOM THUMBNAIL
                 // =========================================================
@@ -7078,6 +7601,39 @@ namespace Ensemble
                     _currentTerrainOriginalXttData =
                         savedXtt;
                 }
+
+                // REFRESH SC2 BASELINE
+
+                if (_currentArtObjectsChunk != null)
+                {
+                    EraChunkInfo savedSc2Chunk =
+                        savedArchive
+                            .Chunks[
+                                _currentArtObjectsChunk.Index];
+
+
+                    byte[] savedSc2 =
+                        EraExtractionService
+                            .ExtractChunk(
+                                savedArchive,
+                                savedSc2Chunk);
+
+
+                    _currentArtObjectsChunk =
+                        savedSc2Chunk;
+
+
+                    _currentArtObjectsOriginalSc2Data =
+                        savedSc2;
+                }
+
+
+                _pendingArtObjectsSc2Replacement =
+                    null;
+
+
+                _artObjectsDirty =
+                    false;
 
 
                 // =========================================================
