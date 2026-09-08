@@ -1497,7 +1497,11 @@ namespace Ensemble
 
                     RemoveAllVegetationMenuItem.IsEnabled =
                         terrainTexture !=
-                        null;
+                        null
+                        ||
+                        _currentArtObjectsChunk != null
+                        ||
+                        map.Objects.Any(IsVegetationScenarioObject);
 
                     TerrainSimulationMap? simulation =
                         TryLoadTerrainSimulationMap(
