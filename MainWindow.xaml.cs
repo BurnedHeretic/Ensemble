@@ -551,6 +551,8 @@ namespace Ensemble
 
             ImportTerrainTextureMenuItem.IsEnabled = false;
 
+            FlattenTerrainMenuItem.IsEnabled = false;
+
             _undoStack.Clear();
 
             _redoStack.Clear();
@@ -1433,6 +1435,10 @@ namespace Ensemble
 
                     TerrainHeightMap? terrain =
                         TryLoadTerrainHeightMap(map);
+
+                    FlattenTerrainMenuItem.IsEnabled =
+                        terrain !=
+                        null;
 
                     TerrainTextureMap? terrainTexture =
                         TryLoadTerrainTextureMap(
@@ -5390,7 +5396,7 @@ namespace Ensemble
         }
 
         private void SetTerrainRadius(
-    float radius)
+            float radius)
         {
             ScenarioMapCanvas
                 .SetTerrainBrushRadius(
@@ -5437,8 +5443,7 @@ namespace Ensemble
                 80);
         }
 
-        private void SetTerrainStrength(
-    float strength)
+        private void SetTerrainStrength(float strength)
         {
             ScenarioMapCanvas
                 .SetTerrainBrushStrength(
@@ -5580,6 +5585,48 @@ namespace Ensemble
 
             StatusText.Text =
                 "Terrain opacity: 100%.";
+        }
+
+        private void TerrainFlatten_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (ScenarioMapCanvas
+                    .TerrainHeightMap ==
+                null)
+            {
+                StatusText.Text =
+                    "No terrain heightmap is loaded.";
+
+                return;
+            }
+
+
+            // Turn the brush off so the user cannot accidentally
+            // continue sculpting immediately after a full-map flatten.
+
+            SetTerrainSculptMode(
+                Ensemble.Controls
+                    .TerrainSculptMode.None);
+
+
+            if (!ScenarioMapCanvas
+                    .FlattenTerrainPreview(
+                        out float flattenedHeight))
+            {
+                StatusText.Text =
+                    "Terrain is already flat.";
+
+                return;
+            }
+
+
+            UpdateDirtyState();
+
+
+            StatusText.Text =
+                $"Terrain flattened to Y {flattenedHeight:0.###} | " +
+                "Save the ERA to make it permanent.";
         }
 
         // =========================================================

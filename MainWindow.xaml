@@ -169,7 +169,14 @@
 
                 <Separator/>
 
-                <MenuItem Header="_Sculpt (Preview Only)">
+                <MenuItem x:Name="FlattenTerrainMenuItem"
+          Header="_Flatten Terrain"
+          Click="TerrainFlatten_Click"
+          IsEnabled="False"/>
+
+                <Separator/>
+
+                <MenuItem Header="_Sculpt">
 
                     <MenuItem x:Name="TerrainSculptOffMenuItem"
               Header="_Off"

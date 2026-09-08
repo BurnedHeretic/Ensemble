@@ -2490,6 +2490,211 @@ namespace Ensemble.Controls
             return true;
         }
 
+        public bool FlattenTerrainPreview(
+            out float flattenedHeight)
+        {
+            flattenedHeight =
+                0.0f;
+
+
+            if (_terrainHeightMap ==
+                    null ||
+                _terrainHeightMap.Heights.Length ==
+                    0)
+            {
+                return false;
+            }
+
+
+            if (_isTerrainSculpting)
+            {
+                FinishTerrainStroke();
+            }
+
+
+            TerrainHeightMap terrain =
+                _terrainHeightMap;
+
+
+            // =========================================================
+            // CHOOSE A LOW REPRESENTATIVE GROUND HEIGHT
+            //
+            // The arithmetic mean is a poor flatten target for maps
+            // containing mountains, cliffs, or raised borders because
+            // those features pull the whole flattened map upward.
+            //
+            // Use the 10th percentile instead:
+            //
+            // - low enough to preserve comfortable camera clearance
+            // - not vulnerable to a single unusually low vertex
+            // =========================================================
+
+            List<float> validHeights =
+                new List<float>(
+                    terrain.Heights.Length);
+
+
+            foreach (float height
+                     in terrain.Heights)
+            {
+                if (float.IsFinite(
+                        height))
+                {
+                    validHeights.Add(
+                        height);
+                }
+            }
+
+
+            if (validHeights.Count ==
+                0)
+            {
+                return false;
+            }
+
+
+            validHeights.Sort();
+
+
+            int targetIndex =
+                Math.Clamp(
+                    (int)MathF.Round(
+                        (validHeights.Count - 1) *
+                        0.10f),
+                    0,
+                    validHeights.Count - 1);
+
+
+            float targetHeight =
+                validHeights[
+                    targetIndex];
+
+
+            targetHeight =
+                Math.Clamp(
+                    targetHeight,
+                    terrain.EncodableMinHeight,
+                    terrain.EncodableMaxHeight);
+
+
+            // =========================================================
+            // QUANTIZE TO AN EXACT XTD HEIGHT
+            //
+            // XTD Y is stored using a 10-bit value (0..1023).
+            //
+            // Doing this here means the editor preview will exactly
+            // represent the height the XTD writer will eventually save.
+            // =========================================================
+
+            if (!float.IsFinite(
+                    terrain.PositionCompressionRange.Y) ||
+                terrain.PositionCompressionRange.Y <=
+                    0)
+            {
+                return false;
+            }
+
+
+            float normalized =
+                (targetHeight +
+                terrain.PositionCompressionMin.Y) /
+                terrain.PositionCompressionRange.Y;
+
+
+            normalized =
+                Math.Clamp(
+                    normalized,
+                    0.0f,
+                    1.0f);
+
+
+            int encodedY =
+                Math.Clamp(
+                    (int)MathF.Round(
+                        normalized *
+                        1023.0f),
+                    0,
+                    1023);
+
+
+            flattenedHeight =
+                encodedY /
+                    1023.0f *
+                    terrain.PositionCompressionRange.Y -
+                terrain.PositionCompressionMin.Y;
+
+
+            // =========================================================
+            // BUILD ONE UNDOABLE TERRAIN OPERATION
+            // =========================================================
+
+            List<TerrainHeightChange> changes =
+                new List<TerrainHeightChange>(
+                    terrain.Heights.Length);
+
+
+            for (int i = 0;
+                 i < terrain.Heights.Length;
+                 i++)
+            {
+                float before =
+                    terrain.Heights[i];
+
+
+                if (!float.IsFinite(
+                        before))
+                {
+                    continue;
+                }
+
+
+                if (MathF.Abs(
+                        before -
+                        flattenedHeight) <
+                    0.000001f)
+                {
+                    continue;
+                }
+
+
+                changes.Add(
+                    new TerrainHeightChange(
+                        i,
+                        before,
+                        flattenedHeight));
+
+
+                terrain.Heights[i] =
+                    flattenedHeight;
+            }
+
+
+            if (changes.Count ==
+                0)
+            {
+                return false;
+            }
+
+
+            _terrainPreviewUndo.Push(
+                new TerrainPreviewStroke(
+                    changes));
+
+
+            _terrainPreviewRedo.Clear();
+
+
+            RefreshTerrainHeightBitmap();
+
+
+            TerrainPreviewChanged?.Invoke(
+                this,
+                EventArgs.Empty);
+
+
+            return true;
+        }
+
         public void AcceptTerrainChangesAsBaseline()
         {
             if (_terrainHeightMap == null)
