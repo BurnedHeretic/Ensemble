@@ -62,6 +62,13 @@ namespace Ensemble
         private byte[]?
             _currentTerrainOriginalXttData;
 
+        private byte[]?
+            _pendingTerrainXttReplacement;
+
+
+        private bool
+            _terrainXttDirty;
+
         private bool
             _terrainTextureDirty;
 
@@ -511,6 +518,11 @@ namespace Ensemble
             _currentTerrainOriginalXttData =
                 null;
 
+            _pendingTerrainXttReplacement =
+                null;
+
+            _terrainXttDirty =
+                false;
 
             _pendingTerrainMaterialReplacements =
                 null;
@@ -550,6 +562,8 @@ namespace Ensemble
             ImportMapThumbnailMenuItem.IsEnabled = false;
 
             ImportTerrainTextureMenuItem.IsEnabled = false;
+
+            RemoveAllFoliageMenuItem.IsEnabled = false;
 
             FlattenTerrainMenuItem.IsEnabled = false;
 
@@ -1445,6 +1459,10 @@ namespace Ensemble
                             map);
 
                     ImportTerrainTextureMenuItem.IsEnabled =
+                        terrainTexture !=
+                        null;
+
+                    RemoveAllFoliageMenuItem.IsEnabled =
                         terrainTexture !=
                         null;
 
@@ -2408,6 +2426,117 @@ namespace Ensemble
                     .ToArray());
         }
 
+        private void RemoveAllFoliage_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (_currentTerrainTextureChunk ==
+                    null ||
+                _currentTerrainOriginalXttData ==
+                    null)
+            {
+                StatusText.Text =
+                    "No terrain XTT is loaded.";
+
+                return;
+            }
+
+
+            byte[] sourceXtt =
+                _pendingTerrainXttReplacement
+                ?? _currentTerrainOriginalXttData;
+
+
+            int foliageChunkCount =
+                TerrainXttRebuildService
+                    .CountFoliageChunks(
+                        sourceXtt);
+
+
+            if (foliageChunkCount ==
+                0)
+            {
+                StatusText.Text =
+                    "This map contains no terrain foliage.";
+
+                return;
+            }
+
+
+            MessageBoxResult result =
+                MessageBox.Show(
+                    this,
+
+                    "Remove all terrain foliage from this map?\n\n" +
+                    $"This will remove {foliageChunkCount} foliage " +
+                    "data chunks from the XTT.\n\n" +
+                    "Buildings, gameplay objects and terrain geometry " +
+                    "will not be removed.",
+
+                    "Remove All Foliage",
+
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+
+            if (result !=
+                MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+
+            try
+            {
+                StatusText.Text =
+                    "Removing terrain foliage...";
+
+
+                byte[] modifiedXtt =
+                    TerrainXttRebuildService
+                        .RemoveAllFoliage(
+                            sourceXtt,
+                            out int removedCount);
+
+
+                // Full XTT parse as another sanity check.
+                TerrainXttService.Read(
+                    modifiedXtt);
+
+
+                _pendingTerrainXttReplacement =
+                    modifiedXtt;
+
+
+                _terrainXttDirty =
+                    true;
+
+
+                UpdateDirtyState();
+
+
+                StatusText.Text =
+                    $"Removed all foliage | " +
+                    $"{removedCount} XTT chunks removed | " +
+                    "Save the ERA to make it permanent.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    this,
+                    ex.ToString(),
+
+                    "Foliage Removal Failed",
+
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+
+
+                StatusText.Text =
+                    "Foliage removal failed.";
+            }
+        }
+
         private sealed class AddObjectHistoryAction :
             IScenarioHistoryAction
         {
@@ -3017,7 +3146,9 @@ namespace Ensemble
                 ||
                 _thumbnailDirty
                 ||
-                _terrainTextureDirty;
+                _terrainTextureDirty
+                ||
+                _terrainXttDirty;
 
             UpdateWindowTitle();
         }
@@ -5873,6 +6004,42 @@ namespace Ensemble
                         _pendingTerrainMaterialReplacements;
                 }
 
+                byte[]?
+                    modifiedTerrainXtt =
+                    null;
+
+
+                if (_terrainXttDirty)
+                {
+                    if (_pendingTerrainXttReplacement ==
+                            null ||
+                        _currentTerrainTextureChunk ==
+                            null)
+                    {
+                        throw new InvalidDataException(
+                            "Terrain XTT was modified, but Ensemble " +
+                            "no longer has the data required to save it.");
+                    }
+
+
+                    modifiedTerrainXtt =
+                        _pendingTerrainXttReplacement;
+
+
+                    if (TerrainXttRebuildService
+                            .CountFoliageChunks(
+                                modifiedTerrainXtt) !=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "Modified XTT still contains foliage chunks.");
+                    }
+
+
+                    TerrainXttService.Read(
+                        modifiedTerrainXtt);
+                }
+
 
                 // =========================================================
                 // STRUCTURAL CHANGE STATE
@@ -5941,6 +6108,25 @@ namespace Ensemble
                     replacements[
                         _currentSimulationChunk.Index] =
                             modifiedXsd;
+                }
+
+                if (modifiedTerrainXtt !=
+                    null &&
+                    _currentTerrainTextureChunk !=
+                    null)
+                {
+                    if (replacements.ContainsKey(
+                            _currentTerrainTextureChunk.Index))
+                    {
+                        throw new InvalidDataException(
+                            "Terrain XTT replacement collided with " +
+                            "another ERA replacement.");
+                    }
+
+
+                    replacements[
+                        _currentTerrainTextureChunk.Index] =
+                            modifiedTerrainXtt;
                 }
 
                 // =========================================================
@@ -6408,6 +6594,52 @@ namespace Ensemble
                 EraArchiveInfo verificationArchive =
                     EraArchiveService.Open(
                         tempPath);
+
+                // =========================================================
+                // VERIFY FOLIAGE-FREE XTT
+                // =========================================================
+
+                if (modifiedTerrainXtt !=
+                        null &&
+                    _currentTerrainTextureChunk !=
+                        null)
+                {
+                    EraChunkInfo savedXttChunk =
+                        verificationArchive
+                            .Chunks[
+                                _currentTerrainTextureChunk.Index];
+
+
+                    byte[] savedXtt =
+                        EraExtractionService
+                            .ExtractChunk(
+                                verificationArchive,
+                                savedXttChunk);
+
+
+                    if (!savedXtt
+                            .AsSpan()
+                            .SequenceEqual(
+                                modifiedTerrainXtt))
+                    {
+                        throw new InvalidDataException(
+                            "Terrain XTT failed ERA round-trip verification.");
+                    }
+
+
+                    if (TerrainXttRebuildService
+                            .CountFoliageChunks(
+                                savedXtt) !=
+                        0)
+                    {
+                        throw new InvalidDataException(
+                            "Saved terrain XTT still contains foliage.");
+                    }
+
+
+                    TerrainXttService.Read(
+                        savedXtt);
+                }
 
 
                 if (_currentScenarioChunk.Index >=
@@ -6934,6 +7166,12 @@ namespace Ensemble
 
 
                 _terrainTextureDirty =
+                    false;
+
+                _pendingTerrainXttReplacement = null;
+
+
+                _terrainXttDirty =
                     false;
 
 

@@ -4,11 +4,8 @@ using System.IO;
 namespace Ensemble.Services
 {
     /// <summary>
-    /// Rebuilds the ECF container used by Halo Wars DE XTT terrain
-    /// texture files.
-    ///
-    /// Only the albedo atlas chunk (0x6666) is replaced.
-    /// Every other XTT chunk and its metadata are preserved.
+    /// Rebuilds and modifies the ECF container used by
+    /// Halo Wars DE XTT terrain texture files.
     /// </summary>
     internal static class TerrainXttRebuildService
     {
@@ -17,6 +14,13 @@ namespace Ensemble.Services
 
         private const ulong AlbedoChunkId =
             0x6666;
+
+        private const ulong FoliageHeaderChunkId =
+            0xAAAA;
+
+
+        private const ulong FoliageQnChunkId =
+            0xBBBB;
 
         // Ensemble-specific disabled linker ID.
         //
@@ -303,6 +307,60 @@ namespace Ensemble.Services
                 info.Width,
                 info.Height,
                 info.MipCount);
+        }
+
+        // =========================================================
+        // FOLIAGE
+        // =========================================================
+
+        public static int CountFoliageChunks(
+            byte[] xttData)
+        {
+            ArgumentNullException.ThrowIfNull(
+                xttData);
+
+
+            return EcfFileService
+                .CountChunks(
+                    xttData,
+                    FoliageHeaderChunkId,
+                    FoliageQnChunkId);
+        }
+
+
+        public static byte[] RemoveAllFoliage(
+            byte[] originalXttData,
+            out int removedChunkCount)
+        {
+            ArgumentNullException.ThrowIfNull(
+                originalXttData);
+
+
+            byte[] result =
+                EcfFileService
+                    .RemoveChunks(
+                        originalXttData,
+                        out removedChunkCount,
+                        FoliageHeaderChunkId,
+                        FoliageQnChunkId);
+
+
+            if (CountFoliageChunks(
+                    result) !=
+                0)
+            {
+                throw new InvalidDataException(
+                    "XTT foliage removal verification failed.");
+            }
+
+
+            // Make sure the remaining XTT is still structurally
+            // readable and still contains its albedo atlas.
+            ReadAlbedoInfo(
+                result);
+
+
+            return result;
         }
 
 

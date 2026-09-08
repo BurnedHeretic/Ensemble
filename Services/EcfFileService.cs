@@ -59,6 +59,96 @@ namespace Ensemble.Services
                 ecf);
         }
 
+        public static int CountChunks(
+            byte[] originalEcf,
+            params ulong[] chunkIds)
+        {
+            ArgumentNullException.ThrowIfNull(
+                originalEcf);
+
+            ArgumentNullException.ThrowIfNull(
+                chunkIds);
+
+
+            if (chunkIds.Length ==
+                0)
+            {
+                return 0;
+            }
+
+
+            ParsedEcf ecf =
+                Parse(
+                    originalEcf);
+
+
+            HashSet<ulong> wanted =
+                new HashSet<ulong>(
+                    chunkIds);
+
+
+            return ecf.Chunks
+                .Count(
+                    chunk =>
+                        wanted.Contains(
+                            chunk.Id));
+        }
+
+
+        public static byte[] RemoveChunks(
+            byte[] originalEcf,
+            out int removedCount,
+            params ulong[] chunkIds)
+        {
+            ArgumentNullException.ThrowIfNull(
+                originalEcf);
+
+            ArgumentNullException.ThrowIfNull(
+                chunkIds);
+
+
+            removedCount =
+                0;
+
+
+            if (chunkIds.Length ==
+                0)
+            {
+                return originalEcf
+                    .ToArray();
+            }
+
+
+            ParsedEcf ecf =
+                Parse(
+                    originalEcf);
+
+
+            HashSet<ulong> unwanted =
+                new HashSet<ulong>(
+                    chunkIds);
+
+
+            removedCount =
+                ecf.Chunks
+                    .RemoveAll(
+                        chunk =>
+                            unwanted.Contains(
+                                chunk.Id));
+
+
+            if (removedCount ==
+                0)
+            {
+                return originalEcf
+                    .ToArray();
+            }
+
+
+            return Build(
+                ecf);
+        }
+
         private static ParsedEcf Parse(
             byte[] data)
         {
