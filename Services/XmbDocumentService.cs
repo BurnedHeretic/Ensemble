@@ -701,6 +701,289 @@ namespace Ensemble.Services
             return rebuiltXmb;
         }
 
+        public static byte[] WriteArtObjectTransforms(
+            byte[] originalXmbData,
+            IReadOnlyCollection<ScenarioArtObject> artObjects)
+        {
+            ArgumentNullException.ThrowIfNull(
+                originalXmbData);
+
+            ArgumentNullException.ThrowIfNull(
+                artObjects);
+
+
+            if (artObjects.Count ==
+                0)
+            {
+                return originalXmbData
+                    .ToArray();
+            }
+
+
+            byte[] packedData =
+                ExtractPackedXmxData(
+                    originalXmbData);
+
+
+            // =========================================================
+            // ENDIANNESS
+            // =========================================================
+
+            bool bigEndian;
+
+
+            uint signatureBig =
+                ReadUInt32(
+                    packedData,
+                    0,
+                    true);
+
+
+            uint signatureLittle =
+                ReadUInt32(
+                    packedData,
+                    0,
+                    false);
+
+
+            if (signatureBig ==
+                XmxSignature)
+            {
+                bigEndian =
+                    true;
+            }
+            else if (signatureLittle ==
+                     XmxSignature)
+            {
+                bigEndian =
+                    false;
+            }
+            else
+            {
+                throw new InvalidDataException(
+                    "Invalid packed XMX signature.");
+            }
+
+
+            // =========================================================
+            // PACKED XMX
+            // =========================================================
+
+            PackedLayout layout =
+                DetectPackedLayout(
+                    packedData,
+                    bigEndian);
+
+
+            PackedArray nodes =
+                ReadPackedArray(
+                    packedData,
+                    layout.NodesArrayOffset,
+                    bigEndian,
+                    layout.PointerSize);
+
+
+            PackedArray variantData =
+                ReadPackedArray(
+                    packedData,
+                    layout.VariantArrayOffset,
+                    bigEndian,
+                    layout.PointerSize);
+
+
+            List<XmxNode> parsedNodes =
+                new List<XmxNode>(
+                    checked(
+                        (int)nodes.Count));
+
+
+            for (uint i = 0;
+                 i < nodes.Count;
+                 i++)
+            {
+                int nodeOffset =
+                    checked(
+                        (int)(
+                            nodes.Offset +
+                            ((ulong)i *
+                             (ulong)layout.NodeSize)));
+
+
+                parsedNodes.Add(
+                    ParseNode(
+                        packedData,
+                        nodeOffset,
+                        layout,
+                        bigEndian));
+            }
+
+
+            Dictionary<int, ScenarioArtObject> wanted =
+                new Dictionary<int, ScenarioArtObject>();
+
+
+            foreach (ScenarioArtObject obj
+                     in artObjects)
+            {
+                if (!wanted.TryAdd(
+                        obj.Id,
+                        obj))
+                {
+                    throw new InvalidDataException(
+                        $"Duplicate SC2 ArtObject ID {obj.Id}.");
+                }
+            }
+
+
+            HashSet<int> patchedIds =
+                new HashSet<int>();
+
+
+            // =========================================================
+            // PATCH ONLY <Objects><Object ...>
+            // =========================================================
+
+            foreach (XmxNode node
+                     in parsedNodes)
+            {
+                string nodeName =
+                    DecodeVariant(
+                        node.NameVariant,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
+
+                string parentName =
+                    GetParentNodeName(
+                        node,
+                        parsedNodes,
+                        packedData,
+                        variantData,
+                        bigEndian);
+
+
+                if (!string.Equals(
+                        nodeName,
+                        "Object",
+                        StringComparison.Ordinal) ||
+                    !string.Equals(
+                        parentName,
+                        "Objects",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+
+                if (!TryGetIntegerAttribute(
+                        node,
+                        "ID",
+                        packedData,
+                        variantData,
+                        bigEndian,
+                        out int id))
+                {
+                    continue;
+                }
+
+
+                if (!wanted.TryGetValue(
+                        id,
+                        out ScenarioArtObject? obj))
+                {
+                    continue;
+                }
+
+
+                // Position is mandatory for an editable ArtObject.
+
+                PatchVectorAttribute(
+                    node,
+                    "Position",
+                    obj.Position,
+                    packedData,
+                    variantData,
+                    bigEndian);
+
+
+                // Forward / Right exist on the SC2 objects we've parsed.
+                // Keep them separate from SCN gameplay-property writing.
+
+                PatchVectorAttribute(
+                    node,
+                    "Forward",
+                    obj.Forward,
+                    packedData,
+                    variantData,
+                    bigEndian);
+
+
+                PatchVectorAttribute(
+                    node,
+                    "Right",
+                    obj.Right,
+                    packedData,
+                    variantData,
+                    bigEndian);
+
+
+                patchedIds.Add(
+                    id);
+            }
+
+
+            // Every object supplied to this function should have existed
+            // in the source SC2.
+
+            if (patchedIds.Count !=
+                wanted.Count)
+            {
+                IEnumerable<int> missing =
+                    wanted.Keys
+                        .Where(
+                            id =>
+                                !patchedIds.Contains(
+                                    id));
+
+
+                throw new InvalidDataException(
+                    "One or more SC2 ArtObjects could not be found " +
+                    "inside the source XMB.\n\n" +
+                    "Missing IDs:\n" +
+                    string.Join(
+                        ", ",
+                        missing));
+            }
+
+
+            // =========================================================
+            // REBUILD XMB CONTAINER
+            // =========================================================
+
+            byte[] compressed =
+                EraCompressionService
+                    .CompressDeflateStream(
+                        packedData);
+
+
+            byte[] rebuiltXmb =
+                EcfFileService
+                    .ReplaceChunk(
+                        originalXmbData,
+                        XmxPackedDataChunkId,
+                        compressed);
+
+
+            // Prove Ensemble can immediately decode what it generated.
+
+            _ = Read(
+                rebuiltXmb);
+
+
+            return rebuiltXmb;
+        }
+
         public static byte[] CloneScenarioInfo(
             byte[] originalXmbData,
             string sourceScenarioFile,

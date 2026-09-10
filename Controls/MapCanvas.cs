@@ -28,6 +28,10 @@ namespace Ensemble.Controls
             _terrainDisplayMode =
         TerrainDisplayMode.Texture;
 
+        private IReadOnlyList<ScenarioArtObject>
+            _artObjects =
+        Array.Empty<ScenarioArtObject>();
+
         private bool
             _showGrid =
                 true;
@@ -312,6 +316,8 @@ namespace Ensemble.Controls
             _selectedItem =
                 null;
 
+            _artObjects = Array.Empty<ScenarioArtObject>();
+
             FitMapView();
 
             RenderMap();
@@ -320,6 +326,17 @@ namespace Ensemble.Controls
                 this,
                 new ScenarioSelectionChangedEventArgs(
                     null));
+        }
+
+        public void SetArtObjects(IReadOnlyList<ScenarioArtObject>? artObjects)
+        {
+            _artObjects =
+                artObjects
+                ??
+                Array.Empty<ScenarioArtObject>();
+
+
+            RenderMap();
         }
 
         public void SetTerrainTextureMap(
@@ -448,8 +465,25 @@ namespace Ensemble.Controls
 
             DrawSpheres();
 
+
+            // =========================================================
+            // SC2 ART OBJECTS
+            //
+            // Draw environmental scenery below gameplay markers so
+            // bases/reactors/resources remain visually dominant.
+            // =========================================================
+
+            foreach (ScenarioArtObject artObject
+                     in _artObjects)
+            {
+                DrawArtObject(
+                    artObject);
+            }
+
+
             // Draw generic/resource markers first so important
             // gameplay objects remain visible on top.
+
             foreach (ScenarioObject obj
                      in _map.Objects
                          .OrderBy(
@@ -1502,6 +1536,111 @@ namespace Ensemble.Controls
                 this,
                 new ScenarioSelectionChangedEventArgs(
                     sphere));
+        }
+
+        // =========================================================
+        // SC2 ART OBJECTS
+        // =========================================================
+
+        private void DrawArtObject(
+            ScenarioArtObject obj)
+        {
+            Point point =
+                WorldToScreen(
+                    obj.Position.X,
+                    obj.Position.Z);
+
+
+            const double size =
+                8.0;
+
+
+            bool selected =
+                ReferenceEquals(
+                    _selectedItem,
+                    obj);
+
+            if (selected)
+            {
+                DrawDirectionIndicator(
+                    point,
+                    obj.Forward);
+            }
+
+
+            Rectangle marker =
+                new Rectangle
+                {
+                    Width =
+                        size,
+
+                    Height =
+                        size,
+
+                    Fill =
+                        selected
+                            ? Brushes.White
+                            : Brushes.SlateGray,
+
+                    Stroke =
+                        selected
+                            ? Brushes.DeepSkyBlue
+                            : Brushes.White,
+
+                    StrokeThickness =
+                        selected
+                            ? 2.0
+                            : 1.0,
+
+                    RenderTransform =
+                        new RotateTransform(
+                            45),
+
+                    RenderTransformOrigin =
+                        new Point(
+                            0.5,
+                            0.5),
+
+                    Tag =
+                        obj,
+
+                    ToolTip =
+                        $"SC2 ArtObject\n" +
+                        $"ID: {obj.Id}\n" +
+                        $"Name: {obj.EditorName}\n" +
+                        $"Type: {obj.Type}\n" +
+                        $"X {obj.Position.X:0.##}, " +
+                        $"Y {obj.Position.Y:0.##}, " +
+                        $"Z {obj.Position.Z:0.##}",
+
+                    // DISPLAY ONLY FOR THIS CHECKPOINT.
+                    //
+                    // Once positions are proven correct we'll enable
+                    // hit-testing and use Ensemble's normal selection /
+                    // dragging system.
+                    IsHitTestVisible = true
+
+                };
+
+            marker.MouseLeftButtonDown += SelectMarker_MouseLeftButtonDown;
+
+
+            SetLeft(
+                marker,
+                point.X -
+                size /
+                2);
+
+
+            SetTop(
+                marker,
+                point.Y -
+                size /
+                2);
+
+
+            Children.Add(
+                marker);
         }
 
         // =========================================================
@@ -3390,6 +3529,7 @@ namespace Ensemble.Controls
         {
             return
                 item is ScenarioObject ||
+                item is ScenarioArtObject ||
                 item is ScenarioPlayerStart ||
                 item is ScenarioSphere;
         }
@@ -4211,13 +4351,15 @@ namespace Ensemble.Controls
                     path));
         }
 
-        private static Vector3 GetItemPosition(
-            object item)
+        private static Vector3 GetItemPosition(object item)
         {
             return item switch
             {
                 ScenarioObject obj =>
                     obj.Position,
+
+                ScenarioArtObject artObject =>
+                    artObject.Position,
 
                 ScenarioPlayerStart start =>
                     start.Position,
@@ -4232,28 +4374,44 @@ namespace Ensemble.Controls
             };
         }
 
-        private static void SetItemPosition(
-            object item,
-            Vector3 position)
+        private static void SetItemPosition(object item,Vector3 position)
         {
             switch (item)
             {
                 case ScenarioObject obj:
+
                     obj.Position =
                         position;
+
                     break;
+
+
+                case ScenarioArtObject artObject:
+
+                    artObject.Position =
+                        position;
+
+                    break;
+
 
                 case ScenarioPlayerStart start:
+
                     start.Position =
                         position;
+
                     break;
+
 
                 case ScenarioSphere sphere:
+
                     sphere.Position =
                         position;
+
                     break;
 
+
                 default:
+
                     throw new InvalidOperationException(
                         $"Object type {item.GetType().Name} " +
                         "does not have an editable map position.");
@@ -4264,6 +4422,7 @@ namespace Ensemble.Controls
         {
             return
                 item is ScenarioObject ||
+                item is ScenarioArtObject ||
                 item is ScenarioPlayerStart;
         }
 
@@ -4390,13 +4549,15 @@ namespace Ensemble.Controls
                     item));
         }
 
-        private static Vector3 GetItemForward(
-            object item)
+        private static Vector3 GetItemForward(object item)
         {
             return item switch
             {
                 ScenarioObject obj =>
                     obj.Forward,
+
+                ScenarioArtObject artObject =>
+                    artObject.Forward,
 
                 ScenarioPlayerStart start =>
                     start.Forward,
@@ -4406,13 +4567,15 @@ namespace Ensemble.Controls
             };
         }
 
-        private static Vector3 GetItemRight(
-            object item)
+        private static Vector3 GetItemRight(object item)
         {
             return item switch
             {
                 ScenarioObject obj =>
                     obj.Right,
+
+                ScenarioArtObject artObject =>
+                    artObject.Right,
 
                 _ =>
                     Vector3.Zero
@@ -4441,6 +4604,16 @@ namespace Ensemble.Controls
 
                     start.Forward =
                         forward;
+
+                    break;
+
+                case ScenarioArtObject artObject:
+
+                    artObject.Forward =
+                        forward;
+
+                    artObject.Right =
+                        right;
 
                     break;
 

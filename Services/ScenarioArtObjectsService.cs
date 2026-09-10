@@ -1,6 +1,7 @@
 ﻿using Ensemble.Models;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Xml.Linq;
 
 namespace Ensemble.Services
@@ -42,12 +43,29 @@ namespace Ensemble.Services
                 new();
         }
 
+        internal sealed class TransformWriteResult
+        {
+            public byte[] ModifiedXmb
+            {
+                get;
+                init;
+            } =
+                Array.Empty<byte>();
+
+
+            public int ChangedObjectCount
+            {
+                get;
+                init;
+            }
+        }
+
 
         // =========================================================
-        // COUNT
+        // READ ALL ART OBJECTS
         // =========================================================
 
-        public static int CountVegetationObjects(
+        public static List<ScenarioArtObject> ReadArtObjects(
             byte[] sc2XmbData)
         {
             ArgumentNullException.ThrowIfNull(
@@ -64,14 +82,30 @@ namespace Ensemble.Services
                     xml);
 
 
-            return FindVegetationObjects(
-                document)
-                .Count;
+            return ParseArtObjects(
+                document);
         }
 
 
         // =========================================================
-        // REMOVE
+        // VEGETATION COUNT
+        // =========================================================
+
+        public static int CountVegetationObjects(
+            byte[] sc2XmbData)
+        {
+            return ReadArtObjects(
+                    sc2XmbData)
+                .Count(
+                    obj =>
+                        IsVegetation(
+                            obj.Type,
+                            obj.EditorName));
+        }
+
+
+        // =========================================================
+        // REMOVE VEGETATION
         // =========================================================
 
         public static VegetationRemovalResult RemoveAllVegetation(
@@ -81,19 +115,15 @@ namespace Ensemble.Services
                 originalSc2XmbData);
 
 
-            string xml =
-                XmbDocumentService.Read(
-                    originalSc2XmbData);
-
-
-            XDocument document =
-                XDocument.Parse(
-                    xml);
-
-
-            List<ArtVegetationObject> vegetation =
-                FindVegetationObjects(
-                    document);
+            List<ScenarioArtObject> vegetation =
+                ReadArtObjects(
+                    originalSc2XmbData)
+                    .Where(
+                        obj =>
+                            IsVegetation(
+                                obj.Type,
+                                obj.EditorName))
+                    .ToList();
 
 
             if (vegetation.Count ==
@@ -111,15 +141,14 @@ namespace Ensemble.Services
             }
 
 
-            // XmbDocumentService already has a proven structural
-            // object deletion path. We only need to give it the
-            // IDs that should disappear from this XMB.
+            // Reuse Ensemble's proven structural XMB deletion
+            // path. Only the matching SC2 object IDs are removed.
 
             ScenarioMap edit =
                 new ScenarioMap();
 
 
-            foreach (ArtVegetationObject obj
+            foreach (ScenarioArtObject obj
                      in vegetation)
             {
                 edit.DeletedObjectIds.Add(
@@ -138,20 +167,15 @@ namespace Ensemble.Services
             // ROUND-TRIP VERIFICATION
             // =====================================================
 
-            string verificationXml =
-                XmbDocumentService.Read(
-                    rebuilt);
-
-
-            XDocument verificationDocument =
-                XDocument.Parse(
-                    verificationXml);
-
-
-            List<ArtVegetationObject>
-                remaining =
-                    FindVegetationObjects(
-                        verificationDocument);
+            List<ScenarioArtObject> remaining =
+                ReadArtObjects(
+                    rebuilt)
+                    .Where(
+                        obj =>
+                            IsVegetation(
+                                obj.Type,
+                                obj.EditorName))
+                    .ToList();
 
 
             if (remaining.Count !=
@@ -175,30 +199,174 @@ namespace Ensemble.Services
                 RemovedObjectTypes =
                     vegetation
                         .Select(
-                            x =>
-                                x.Type)
+                            obj =>
+                                obj.Type)
                         .Where(
-                            x =>
+                            type =>
                                 !string.IsNullOrWhiteSpace(
-                                    x))
+                                    type))
                         .Distinct(
                             StringComparer.OrdinalIgnoreCase)
                         .OrderBy(
-                            x =>
-                                x,
+                            type =>
+                                type,
                             StringComparer.OrdinalIgnoreCase)
                         .ToList()
             };
         }
 
+        // =========================================================
+        // WRITE ART OBJECT TRANSFORMS
+        // =========================================================
+
+        public static TransformWriteResult ApplyTransforms(
+            byte[] sourceSc2XmbData,
+            IReadOnlyCollection<ScenarioArtObject> currentArtObjects)
+        {
+            ArgumentNullException.ThrowIfNull(
+                sourceSc2XmbData);
+
+            ArgumentNullException.ThrowIfNull(
+                currentArtObjects);
+
+
+            List<ScenarioArtObject> sourceObjects =
+                ReadArtObjects(
+                    sourceSc2XmbData);
+
+
+            Dictionary<int, ScenarioArtObject> sourceById =
+                sourceObjects
+                    .ToDictionary(
+                        obj =>
+                            obj.Id);
+
+
+            List<ScenarioArtObject> changed =
+                new();
+
+
+            foreach (ScenarioArtObject current
+                     in currentArtObjects)
+            {
+                // The pending SC2 may already have had an object removed
+                // by Remove All Vegetation.
+                //
+                // Do not accidentally recreate deleted ArtObjects.
+
+                if (!sourceById.TryGetValue(
+                        current.Id,
+                        out ScenarioArtObject? original))
+                {
+                    continue;
+                }
+
+
+                if (!TransformEquals(
+                        original,
+                        current))
+                {
+                    changed.Add(
+                        current);
+                }
+            }
+
+
+            if (changed.Count ==
+                0)
+            {
+                return new TransformWriteResult
+                {
+                    ModifiedXmb =
+                        sourceSc2XmbData
+                            .ToArray(),
+
+                    ChangedObjectCount =
+                        0
+                };
+            }
+
+
+            byte[] rebuilt =
+                XmbDocumentService
+                    .WriteArtObjectTransforms(
+                        sourceSc2XmbData,
+                        changed);
+
+
+            // =========================================================
+            // ROUND-TRIP VERIFICATION
+            // =========================================================
+
+            Dictionary<int, ScenarioArtObject> verification =
+                ReadArtObjects(
+                    rebuilt)
+                    .ToDictionary(
+                        obj =>
+                            obj.Id);
+
+
+            foreach (ScenarioArtObject expected
+                     in changed)
+            {
+                if (!verification.TryGetValue(
+                        expected.Id,
+                        out ScenarioArtObject? actual))
+                {
+                    throw new InvalidDataException(
+                        "SC2 transform verification lost ArtObject " +
+                        $"ID {expected.Id}.");
+                }
+
+
+                if (!VectorNearlyEqual(
+                        expected.Position,
+                        actual.Position))
+                {
+                    throw new InvalidDataException(
+                        "SC2 ArtObject Position failed verification.\n\n" +
+                        $"ID: {expected.Id}");
+                }
+
+
+                if (!VectorNearlyEqual(
+                        expected.Forward,
+                        actual.Forward))
+                {
+                    throw new InvalidDataException(
+                        "SC2 ArtObject Forward failed verification.\n\n" +
+                        $"ID: {expected.Id}");
+                }
+
+
+                if (!VectorNearlyEqual(
+                        expected.Right,
+                        actual.Right))
+                {
+                    throw new InvalidDataException(
+                        "SC2 ArtObject Right failed verification.\n\n" +
+                        $"ID: {expected.Id}");
+                }
+            }
+
+
+            return new TransformWriteResult
+            {
+                ModifiedXmb =
+                    rebuilt,
+
+                ChangedObjectCount =
+                    changed.Count
+            };
+        }
+
 
         // =========================================================
-        // ART OBJECT DISCOVERY
+        // ART OBJECT PARSER
         // =========================================================
 
-        private static List<ArtVegetationObject>
-            FindVegetationObjects(
-                XDocument document)
+        private static List<ScenarioArtObject> ParseArtObjects(
+            XDocument document)
         {
             XElement? root =
                 document.Root;
@@ -212,7 +380,7 @@ namespace Ensemble.Services
             }
 
 
-            List<ArtVegetationObject> result =
+            List<ScenarioArtObject> result =
                 new();
 
 
@@ -238,59 +406,85 @@ namespace Ensemble.Services
             foreach (XElement element
                      in objects)
             {
-                string idText =
-                    element
-                        .Attribute(
-                            "ID")
-                        ?.Value
-                    ??
-                    string.Empty;
-
-
-                if (!int.TryParse(
-                        idText,
-                        NumberStyles.Integer,
-                        CultureInfo.InvariantCulture,
-                        out int id))
-                {
-                    continue;
-                }
+                int id =
+                    ReadIntAttribute(
+                        element,
+                        "ID");
 
 
                 string editorName =
-                    element
-                        .Attribute(
-                            "EditorName")
-                        ?.Value
-                    ??
-                    string.Empty;
+                    ReadAttribute(
+                        element,
+                        "EditorName");
 
 
-                string type =
-                    ReadDirectText(
-                        element);
-
-
-                if (!IsVegetation(
-                        type,
-                        editorName))
-                {
-                    continue;
-                }
-
-
-                result.Add(
-                    new ArtVegetationObject
+                ScenarioArtObject obj =
+                    new ScenarioArtObject
                     {
                         Id =
                             id,
 
-                        Type =
-                            type,
+                        SourceObjectId =
+                            id,
 
                         EditorName =
-                            editorName
-                    });
+                            editorName,
+
+                        OriginalEditorName =
+                            editorName,
+
+                        Type =
+                            ReadDirectText(
+                                element),
+
+                        Position =
+                            ParseVector3(
+                                ReadAttribute(
+                                    element,
+                                    "Position")),
+
+                        Forward =
+                            ParseVector3(
+                                ReadAttribute(
+                                    element,
+                                    "Forward")),
+
+                        Right =
+                            ParseVector3(
+                                ReadAttribute(
+                                    element,
+                                    "Right")),
+
+                        Group =
+                            ReadIntAttribute(
+                                element,
+                                "Group"),
+
+                        VisualVariationIndex =
+                            ReadIntAttribute(
+                                element,
+                                "VisualVariationIndex")
+                    };
+
+
+                foreach (XElement flag
+                         in element.Elements("Flag"))
+                {
+                    string value =
+                        flag.Value.Trim();
+
+
+                    if (!string.IsNullOrWhiteSpace(
+                            value))
+                    {
+                        obj.Flags.Add(
+                            value);
+                    }
+                }
+
+
+                result.Add(
+                    obj);
             }
 
 
@@ -299,7 +493,7 @@ namespace Ensemble.Services
 
 
         // =========================================================
-        // CLASSIFICATION
+        // VEGETATION CLASSIFICATION
         // =========================================================
 
         private static bool IsVegetation(
@@ -394,7 +588,7 @@ namespace Ensemble.Services
 
 
         // =========================================================
-        // DIRECT OBJECT TYPE TEXT
+        // XML HELPERS
         // =========================================================
 
         private static string ReadDirectText(
@@ -418,33 +612,111 @@ namespace Ensemble.Services
         }
 
 
-        // =========================================================
-        // MODEL
-        // =========================================================
-
-        private sealed class ArtVegetationObject
+        private static string ReadAttribute(
+            XElement element,
+            string name)
         {
-            public int Id
+            return element
+                .Attribute(
+                    name)
+                ?.Value
+                ??
+                string.Empty;
+        }
+
+
+        private static int ReadIntAttribute(
+            XElement element,
+            string name)
+        {
+            string value =
+                ReadAttribute(
+                    element,
+                    name);
+
+
+            return int.TryParse(
+                value,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int result)
+                    ? result
+                    : 0;
+        }
+
+
+        private static Vector3 ParseVector3(
+            string value)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    value))
             {
-                get;
-                init;
+                return Vector3.Zero;
             }
 
 
-            public string Type
-            {
-                get;
-                init;
-            } =
-                string.Empty;
+            string[] pieces =
+                value.Split(',');
 
 
-            public string EditorName
+            if (pieces.Length !=
+                3)
             {
-                get;
-                init;
-            } =
-                string.Empty;
+                throw new FormatException(
+                    $"Invalid Halo Wars vector: {value}");
+            }
+
+
+            return new Vector3(
+                ParseFloat(
+                    pieces[0]),
+
+                ParseFloat(
+                    pieces[1]),
+
+                ParseFloat(
+                    pieces[2]));
+        }
+
+
+        private static float ParseFloat(
+            string value)
+        {
+            return float.Parse(
+                value.Trim(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture);
+        }
+
+        private static bool TransformEquals(
+            ScenarioArtObject a,
+            ScenarioArtObject b)
+        {
+            return
+                VectorNearlyEqual(
+                    a.Position,
+                    b.Position)
+                &&
+                VectorNearlyEqual(
+                    a.Forward,
+                    b.Forward)
+                &&
+                VectorNearlyEqual(
+                    a.Right,
+                    b.Right);
+        }
+
+
+        private static bool VectorNearlyEqual(
+            System.Numerics.Vector3 a,
+            System.Numerics.Vector3 b)
+        {
+            return
+                System.Numerics.Vector3
+                    .DistanceSquared(
+                        a,
+                        b) <
+                0.000001f;
         }
     }
 }

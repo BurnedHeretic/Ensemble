@@ -54,6 +54,10 @@ namespace Ensemble
         private EraChunkInfo?
             _currentArtObjectsChunk;
 
+        private List<ScenarioArtObject>
+            _currentArtObjects =
+            new();
+
 
         private byte[]?
             _currentArtObjectsOriginalSc2Data;
@@ -548,6 +552,8 @@ namespace Ensemble
 
             _currentArtObjectsChunk =
                 null;
+
+            _currentArtObjects = new();
 
 
             _currentArtObjectsOriginalSc2Data =
@@ -1480,6 +1486,9 @@ namespace Ensemble
                     ScenarioMapCanvas.SetMap(
                         map);
 
+                    ScenarioMapCanvas.SetArtObjects(
+                        _currentArtObjects);
+
                     TerrainHeightMap? terrain =
                         TryLoadTerrainHeightMap(map);
 
@@ -1521,7 +1530,8 @@ namespace Ensemble
 
                     StatusText.Text =
                         $"Loaded {map.Name} | " +
-                        $"{map.Objects.Count} objects | " +
+                        $"{map.Objects.Count} gameplay objects | " +
+                        $"{_currentArtObjects.Count} art objects | " +
                         $"{map.PlayerStarts.Count} player starts | " +
                         $"{map.Spheres.Count} design spheres | " +
                         $"{map.Paths.Count} design paths" +
@@ -1975,6 +1985,13 @@ namespace Ensemble
 
                     ShowScenarioObject(
                         obj);
+
+                    break;
+
+                case ScenarioArtObject artObject:
+
+                    ShowScenarioArtObject(
+                        artObject);
 
                     break;
 
@@ -2877,6 +2894,8 @@ namespace Ensemble
             _pendingArtObjectsSc2Replacement =
                 null;
 
+            _currentArtObjects = new();
+
 
             _artObjectsDirty =
                 false;
@@ -2959,9 +2978,13 @@ namespace Ensemble
                         chunk);
 
 
-            // Prove it's a valid readable XMB immediately.
-            XmbDocumentService.Read(
-                data);
+            // Parse every ArtObject now rather than merely proving the
+            // companion XMB is readable.
+
+            List<ScenarioArtObject> artObjects =
+                ScenarioArtObjectsService
+                    .ReadArtObjects(
+                        data);
 
 
             _currentArtObjectsChunk =
@@ -2970,6 +2993,10 @@ namespace Ensemble
 
             _currentArtObjectsOriginalSc2Data =
                 data;
+
+
+            _currentArtObjects =
+                artObjects;
         }
 
         private sealed class AddObjectHistoryAction :
@@ -3041,6 +3068,16 @@ namespace Ensemble
 
                     position =
                         obj.Position;
+
+                    editable =
+                        true;
+
+                    break;
+
+                case ScenarioArtObject artObject:
+
+                    position =
+                        artObject.Position;
 
                     editable =
                         true;
@@ -3144,6 +3181,16 @@ namespace Ensemble
 
                     forward =
                         obj.Forward;
+
+                    editable =
+                        true;
+
+                    break;
+
+                case ScenarioArtObject artObject:
+
+                    forward =
+                        artObject.Forward;
 
                     editable =
                         true;
@@ -3569,6 +3616,70 @@ namespace Ensemble
                 $"Flags: {flags}";
         }
 
+        private void ShowScenarioArtObject(ScenarioArtObject obj)
+        {
+            // Gameplay-only properties such as Player are not
+            // appropriate for SC2 scenery.
+
+            ObjectPropertiesEditorPanel.Visibility =
+                Visibility.Collapsed;
+
+
+            SphereRadiusEditorPanel.Visibility =
+                Visibility.Collapsed;
+
+
+            RightPanelTitle.Text =
+                "SC2 ART OBJECT";
+
+
+            SelectedNameText.Text =
+                obj.DisplayName;
+
+
+            SelectedTypeText.Text =
+                obj.Type;
+
+
+            SelectedIdText.Text =
+                obj.Id.ToString();
+
+
+            SelectedPositionText.Text =
+                FormatVector(
+                    obj.Position);
+
+
+            SelectedForwardText.Text =
+                FormatVector(
+                    obj.Forward);
+
+
+            SelectedRightText.Text =
+                FormatVector(
+                    obj.Right);
+
+
+            SelectedYawText.Text =
+                $"{Ensemble.Controls.MapCanvas.GetYawDegrees(obj.Forward):0.####}°";
+
+
+            string flags =
+                obj.Flags.Count ==
+                    0
+                    ? "None"
+                    : string.Join(
+                        ", ",
+                        obj.Flags);
+
+
+            SelectedDetailsText.Text =
+                $"SC2 ArtObject\n" +
+                $"Group: {obj.Group}\n" +
+                $"Visual Variation: {obj.VisualVariationIndex}\n" +
+                $"Flags: {flags}";
+        }
+
         private void UpdateDirtyState()
         {
             _isDirty =
@@ -3878,6 +3989,9 @@ namespace Ensemble
             {
                 ScenarioObject obj =>
                     obj.EditorName,
+
+                ScenarioArtObject artObject =>
+                artObject.DisplayName,
 
                 ScenarioPlayerStart start =>
                     $"Player Start {start.Number}",
@@ -6299,9 +6413,9 @@ namespace Ensemble
         }
 
         private bool SaveModifiedEraToPath(
-            string targetPath,
-            bool showSuccessDialog,
-            bool renameScenarioCompanions)
+    string targetPath,
+    bool showSuccessDialog,
+    bool renameScenarioCompanions)
         {
             if (_currentArchive == null ||
                 _currentScenarioChunk == null ||
@@ -6419,9 +6533,14 @@ namespace Ensemble
                         encodedTerrain);
                 }
 
+
+                // =========================================================
+                // TERRAIN MATERIAL DIFFUSE TEXTURES
+                // =========================================================
+
                 Dictionary<int, byte[]>?
                     terrainMaterialReplacements =
-                    null;
+                        null;
 
 
                 if (_terrainTextureDirty)
@@ -6441,9 +6560,14 @@ namespace Ensemble
                         _pendingTerrainMaterialReplacements;
                 }
 
+
+                // =========================================================
+                // TERRAIN XTT
+                // =========================================================
+
                 byte[]?
                     modifiedTerrainXtt =
-                    null;
+                        null;
 
 
                 if (_terrainXttDirty)
@@ -6463,6 +6587,10 @@ namespace Ensemble
                         _pendingTerrainXttReplacement;
 
 
+                    // At present the persistent XTT edit is Remove All
+                    // Vegetation, so an edited XTT must contain no remaining
+                    // foliage chunks.
+
                     if (TerrainXttRebuildService
                             .CountFoliageChunks(
                                 modifiedTerrainXtt) !=
@@ -6477,42 +6605,92 @@ namespace Ensemble
                         modifiedTerrainXtt);
                 }
 
-                // VEGETATION / ART
+
+                // =========================================================
+                // SC2 ART OBJECTS
+                //
+                // SC2 may contain TWO types of pending modification:
+                //
+                // 1. Structural edits generated by something such as
+                //    Remove All Vegetation.
+                //
+                // 2. Interactive transform edits made to ScenarioArtObject
+                //    instances in the viewport.
+                //
+                // Apply current transforms ON TOP of any already-pending
+                // structural SC2 replacement.
+                // =========================================================
 
                 byte[]?
-                    modifiedArtObjectsSc2 = null;
-
-
-                if (_artObjectsDirty)
-                {
-                    if (_currentArtObjectsChunk ==
-                            null ||
-                        _pendingArtObjectsSc2Replacement ==
-                            null)
-                    {
-                        throw new InvalidDataException(
-                            "SC2 ArtObjects were modified, but Ensemble " +
-                            "no longer has the data required to save them.");
-                    }
-
-
                     modifiedArtObjectsSc2 =
-                        _pendingArtObjectsSc2Replacement;
+                        null;
 
 
-                    if (ScenarioArtObjectsService
-                            .CountVegetationObjects(
-                                modifiedArtObjectsSc2) !=
-                        0)
+                int modifiedArtObjectTransformCount =
+                    0;
+
+
+                bool hadArtObjectStructuralChanges =
+                    _pendingArtObjectsSc2Replacement !=
+                    null;
+
+
+                if (_currentArtObjectsChunk !=
+                        null &&
+                    _currentArtObjectsOriginalSc2Data !=
+                        null)
+                {
+                    byte[] sourceSc2 =
+                        _pendingArtObjectsSc2Replacement
+                        ??
+                        _currentArtObjectsOriginalSc2Data;
+
+
+                    ScenarioArtObjectsService
+                        .TransformWriteResult
+                        transformResult =
+                            ScenarioArtObjectsService
+                                .ApplyTransforms(
+                                    sourceSc2,
+                                    _currentArtObjects);
+
+
+                    modifiedArtObjectTransformCount =
+                        transformResult
+                            .ChangedObjectCount;
+
+
+                    // Queue SC2 if it already contains a structural
+                    // modification OR if one or more ArtObjects were
+                    // moved/rotated.
+
+                    if (_pendingArtObjectsSc2Replacement !=
+                            null ||
+                        transformResult.ChangedObjectCount >
+                            0)
                     {
-                        throw new InvalidDataException(
-                            "Modified SC2 still contains recognised vegetation.");
+                        modifiedArtObjectsSc2 =
+                            transformResult
+                                .ModifiedXmb;
                     }
+                }
+                else if (_artObjectsDirty)
+                {
+                    throw new InvalidDataException(
+                        "SC2 ArtObjects were modified, but Ensemble " +
+                        "no longer has the source ArtObjects file.");
                 }
 
 
                 // =========================================================
                 // STRUCTURAL CHANGE STATE
+                //
+                // SCN structural changes invalidate old object-history
+                // assumptions.
+                //
+                // An SC2 structural replacement such as Remove All
+                // Vegetation can also remove objects referenced by old
+                // history actions, so treat it the same way.
                 // =========================================================
 
                 bool hadStructuralChanges =
@@ -6530,7 +6708,9 @@ namespace Ensemble
                     ||
                     expected.Paths.Any(
                         x =>
-                            x.HasPointChanges);
+                            x.HasPointChanges)
+                    ||
+                    hadArtObjectStructuralChanges;
 
 
                 // =========================================================
@@ -6580,10 +6760,11 @@ namespace Ensemble
                             modifiedXsd;
                 }
 
+
                 if (modifiedTerrainXtt !=
-                    null &&
+                        null &&
                     _currentTerrainTextureChunk !=
-                    null)
+                        null)
                 {
                     if (replacements.ContainsKey(
                             _currentTerrainTextureChunk.Index))
@@ -6599,10 +6780,11 @@ namespace Ensemble
                             modifiedTerrainXtt;
                 }
 
+
                 if (modifiedArtObjectsSc2 !=
-                    null &&
+                        null &&
                     _currentArtObjectsChunk !=
-                    null)
+                        null)
                 {
                     if (replacements.ContainsKey(
                             _currentArtObjectsChunk.Index))
@@ -6617,6 +6799,7 @@ namespace Ensemble
                         _currentArtObjectsChunk.Index] =
                             modifiedArtObjectsSc2;
                 }
+
 
                 // =========================================================
                 // TERRAIN MATERIAL DIFFUSE TEXTURES
@@ -6647,8 +6830,15 @@ namespace Ensemble
 
 
                 // =========================================================
-                // SAVE AS:
-                // Rename scenario-derived companion files.
+                // SAVE AS
+                //
+                // Rename scenario-derived companion files:
+                //
+                // .scn.xmb
+                // .sc2.xmb
+                // .sc3.xmb
+                // .xsd
+                // .lrp
                 // =========================================================
 
                 Dictionary<int, string> fileRenames =
@@ -6680,6 +6870,7 @@ namespace Ensemble
                             _currentScenarioChunk,
                             targetBasename);
                 }
+
 
                 // =========================================================
                 // OPTIONAL CUSTOM MAP THUMBNAIL
@@ -6733,6 +6924,7 @@ namespace Ensemble
                         null)
                     {
                         // Replacing an already-embedded custom thumbnail.
+
                         replacements[
                             existingThumbnail.Index] =
                                 _pendingThumbnailDdxData;
@@ -6740,6 +6932,7 @@ namespace Ensemble
                     else
                     {
                         // First custom thumbnail for this ERA.
+
                         fileAdditions.Add(
                             new EraFileAddition
                             {
@@ -6754,7 +6947,8 @@ namespace Ensemble
                                 CompressionMethod =
                                     0,
 
-                                // Shipping map thumbnails use 4-byte alignment.
+                                // Shipping map thumbnails use
+                                // 4-byte alignment.
                                 AlignmentLog2 =
                                     2,
 
@@ -6793,9 +6987,11 @@ namespace Ensemble
 
                 MapMetadata metadata =
                     _currentMapMetadata
-                    ?? MapMetadataService.Load(
+                    ??
+                    MapMetadataService.Load(
                         _currentArchive.FilePath)
-                    ?? MapMetadataService.CreateDefault(
+                    ??
+                    MapMetadataService.CreateDefault(
                         targetPath);
 
 
@@ -6806,7 +7002,8 @@ namespace Ensemble
                 string displayName =
                     metadata.DisplayName?
                         .Trim()
-                    ?? string.Empty;
+                    ??
+                    string.Empty;
 
 
                 if (string.IsNullOrWhiteSpace(
@@ -6821,21 +7018,22 @@ namespace Ensemble
                 string description =
                     metadata.Description?
                         .Trim()
-                    ?? string.Empty;
+                    ??
+                    string.Empty;
 
 
                 // =========================================================
                 // DETERMINE MANIFEST SCENARIO PATH
                 //
-                // Archive path:
+                // Archive:
                 //
                 // scenario\skirmish\design\blood_gulch\
-                // small_gulch.scn.xmb
+                // custom.scn.xmb
                 //
-                // Manifest path:
+                // ENSMAP1:
                 //
                 // skirmish\design\blood_gulch\
-                // small_gulch.scn
+                // custom.scn
                 // =========================================================
 
                 string manifestScenarioPath =
@@ -6873,6 +7071,7 @@ namespace Ensemble
 
 
                 // Save As changes the internal scenario basename.
+
                 if (renameScenarioCompanions)
                 {
                     int slash =
@@ -6903,6 +7102,7 @@ namespace Ensemble
 
 
                 // Remove ".xmb", leaving ".scn".
+
                 manifestScenarioPath =
                     manifestScenarioPath[
                         ..^4];
@@ -6910,9 +7110,6 @@ namespace Ensemble
 
                 // =========================================================
                 // MAX PLAYERS
-                //
-                // Halo Wars' ScenarioInfo uses the 2 / 4 / 6-player
-                // buckets.
                 // =========================================================
 
                 int manifestMaxPlayers =
@@ -6956,27 +7153,24 @@ namespace Ensemble
                         LoadingScreen =
                             _currentEraManifest?
                                 .LoadingScreen
-                            ?? string.Empty,
+                            ??
+                            string.Empty,
 
                         MapName =
-                        pendingThumbnailUrl
-                        ??
-                        (
-                        !string.IsNullOrWhiteSpace(
-                            _currentEraManifest?.MapName)
-                        ? _currentEraManifest!.MapName
-                        : BuildStockMapThumbnailUrl(
-                            _currentScenarioChunk)
-            )
-
+                            pendingThumbnailUrl
+                            ??
+                            (
+                                !string.IsNullOrWhiteSpace(
+                                    _currentEraManifest?.MapName)
+                                    ? _currentEraManifest!.MapName
+                                    : BuildStockMapThumbnailUrl(
+                                        _currentScenarioChunk)
+                            )
                     };
 
 
                 // =========================================================
-                // ATTACH MANIFEST TO ERA
-                //
-                // The service writes ENSMAP1 into the reserved trailing
-                // ERA footer area without changing archive length.
+                // ATTACH ENSMAP1 MANIFEST TO ERA
                 // =========================================================
 
                 StatusText.Text =
@@ -7062,10 +7256,11 @@ namespace Ensemble
                         "ERA manifest MaxPlayers failed verification.");
                 }
 
+
                 if (!string.Equals(
-                    verificationManifest.MapName,
-                    manifest.MapName,
-                    StringComparison.Ordinal))
+                        verificationManifest.MapName,
+                        manifest.MapName,
+                        StringComparison.Ordinal))
                 {
                     throw new InvalidDataException(
                         "ERA manifest MapName failed verification.");
@@ -7084,8 +7279,9 @@ namespace Ensemble
                     EraArchiveService.Open(
                         tempPath);
 
+
                 // =========================================================
-                // VERIFY FOLIAGE-FREE XTT
+                // VERIFY XTT
                 // =========================================================
 
                 if (modifiedTerrainXtt !=
@@ -7131,6 +7327,10 @@ namespace Ensemble
                 }
 
 
+                // =========================================================
+                // VERIFY SCENARIO
+                // =========================================================
+
                 if (_currentScenarioChunk.Index >=
                     verificationArchive.Chunks.Count)
                 {
@@ -7164,11 +7364,24 @@ namespace Ensemble
                     expected,
                     verificationScenario);
 
+
+                // =========================================================
+                // VERIFY SC2 ART OBJECTS
+                // =========================================================
+
                 if (modifiedArtObjectsSc2 !=
-                    null &&
+                        null &&
                     _currentArtObjectsChunk !=
-                    null)
+                        null)
                 {
+                    if (_currentArtObjectsChunk.Index >=
+                        verificationArchive.Chunks.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Saved ERA lost the SC2 ArtObjects chunk.");
+                    }
+
+
                     EraChunkInfo verificationSc2Chunk =
                         verificationArchive
                             .Chunks[
@@ -7182,6 +7395,9 @@ namespace Ensemble
                                 verificationSc2Chunk);
 
 
+                    // Exact generated SC2 bytes must survive the ERA
+                    // compression/encryption round trip.
+
                     if (!verificationSc2
                             .AsSpan()
                             .SequenceEqual(
@@ -7192,15 +7408,65 @@ namespace Ensemble
                     }
 
 
-                    if (ScenarioArtObjectsService
-                            .CountVegetationObjects(
-                                verificationSc2) !=
+                    // Prove the archive copy still decodes as a valid SC2
+                    // and that all ArtObjects can still be parsed.
+
+                    List<ScenarioArtObject> verificationArtObjects =
+                        ScenarioArtObjectsService
+                            .ReadArtObjects(
+                                verificationSc2);
+
+
+                    // If transforms were actually patched, verify those
+                    // values against the live editor objects one more time
+                    // after the complete ERA round trip.
+
+                    if (modifiedArtObjectTransformCount >
                         0)
                     {
-                        throw new InvalidDataException(
-                            "Saved SC2 still contains recognised vegetation.");
+                        Dictionary<int, ScenarioArtObject>
+                            verificationById =
+                                verificationArtObjects
+                                    .ToDictionary(
+                                        obj =>
+                                            obj.Id);
+
+
+                        foreach (ScenarioArtObject expectedArtObject
+                                 in _currentArtObjects)
+                        {
+                            if (!verificationById.TryGetValue(
+                                    expectedArtObject.Id,
+                                    out ScenarioArtObject? actualArtObject))
+                            {
+                                // This can legitimately occur if an object was
+                                // structurally removed from a pending SC2, such
+                                // as Remove All Vegetation.
+
+                                continue;
+                            }
+
+
+                            RequireVectorEqual(
+                                expectedArtObject.Position,
+                                actualArtObject.Position,
+                                $"SC2 ArtObject {expectedArtObject.Id} Position");
+
+
+                            RequireVectorEqual(
+                                expectedArtObject.Forward,
+                                actualArtObject.Forward,
+                                $"SC2 ArtObject {expectedArtObject.Id} Forward");
+
+
+                            RequireVectorEqual(
+                                expectedArtObject.Right,
+                                actualArtObject.Right,
+                                $"SC2 ArtObject {expectedArtObject.Id} Right");
+                        }
                     }
                 }
+
 
                 // =========================================================
                 // VERIFY CUSTOM THUMBNAIL
@@ -7255,6 +7521,7 @@ namespace Ensemble
                         .ValidateMapThumbnail(
                             verificationThumbnail);
                 }
+
 
                 // =========================================================
                 // VERIFY TERRAIN MATERIAL DIFFUSE TEXTURES
@@ -7339,8 +7606,9 @@ namespace Ensemble
 
 
                     EraChunkInfo verificationTerrainChunk =
-                        verificationArchive.Chunks[
-                            _currentTerrainChunk.Index];
+                        verificationArchive
+                            .Chunks[
+                                _currentTerrainChunk.Index];
 
 
                     byte[] verificationXtd =
@@ -7363,8 +7631,9 @@ namespace Ensemble
 
 
                         EraChunkInfo verificationSimulationChunk =
-                            verificationArchive.Chunks[
-                                _currentSimulationChunk.Index];
+                            verificationArchive
+                                .Chunks[
+                                    _currentSimulationChunk.Index];
 
 
                         byte[] verificationXsd =
@@ -7385,6 +7654,7 @@ namespace Ensemble
 
 
                         // Also prove the resulting XSD is parseable.
+
                         TerrainXsdService.Read(
                             verificationXsd,
                             expectedTerrain);
@@ -7462,7 +7732,10 @@ namespace Ensemble
                     savedScenarioXmb;
 
 
-                // Manifest is now canonical metadata stored inside ERA.
+                // =========================================================
+                // MANIFEST / METADATA BASELINE
+                // =========================================================
+
                 _currentEraManifest =
                     verificationManifest;
 
@@ -7474,11 +7747,13 @@ namespace Ensemble
                             verificationManifest.DisplayName,
 
                         Description =
-                            verificationManifest.Description,
-
+                            verificationManifest.Description
                     };
 
-                _metadataDirty = false;
+
+                _metadataDirty =
+                    false;
+
 
                 _thumbnailDirty =
                     false;
@@ -7570,6 +7845,7 @@ namespace Ensemble
                     }
                 }
 
+
                 // =========================================================
                 // REFRESH TERRAIN TEXTURE BASELINE
                 // =========================================================
@@ -7606,10 +7882,29 @@ namespace Ensemble
                         savedXtt;
                 }
 
-                // REFRESH SC2 BASELINE
 
-                if (_currentArtObjectsChunk != null)
+                // =========================================================
+                // REFRESH SC2 BASELINE
+                //
+                // Do NOT replace _currentArtObjects here with freshly
+                // parsed object instances.
+                //
+                // Existing Undo/Redo history stores references to the live
+                // ScenarioArtObject instances currently displayed by
+                // MapCanvas.
+                // =========================================================
+
+                if (_currentArtObjectsChunk !=
+                    null)
                 {
+                    if (_currentArtObjectsChunk.Index >=
+                        savedArchive.Chunks.Count)
+                    {
+                        throw new InvalidDataException(
+                            "Saved ERA lost the SC2 chunk after reopening.");
+                    }
+
+
                     EraChunkInfo savedSc2Chunk =
                         savedArchive
                             .Chunks[
@@ -7621,6 +7916,13 @@ namespace Ensemble
                             .ExtractChunk(
                                 savedArchive,
                                 savedSc2Chunk);
+
+
+                    // Prove the reopened baseline is still readable.
+
+                    _ = ScenarioArtObjectsService
+                        .ReadArtObjects(
+                            savedSc2);
 
 
                     _currentArtObjectsChunk =
@@ -7641,7 +7943,7 @@ namespace Ensemble
 
 
                 // =========================================================
-                // ACCEPT CURRENT STRUCTURAL STATE AS SAVED BASELINE
+                // ACCEPT CURRENT SCN STRUCTURAL STATE AS SAVED BASELINE
                 // =========================================================
 
                 foreach (ScenarioObject obj
@@ -7676,8 +7978,10 @@ namespace Ensemble
 
                 if (hadStructuralChanges)
                 {
-                    // Structural XMX topology has changed, therefore old
-                    // structural undo actions are no longer valid.
+                    // Structural XMX/SC2 topology has changed.
+                    //
+                    // Old structural history actions may reference objects
+                    // that no longer exist in the saved files.
 
                     _undoStack.Clear();
 
@@ -7701,6 +8005,9 @@ namespace Ensemble
                 }
                 else
                 {
+                    // Ordinary transform edits can remain in Undo/Redo
+                    // after Save.
+
                     _savedRevisionId =
                         _currentRevisionId;
                 }
@@ -7717,6 +8024,7 @@ namespace Ensemble
                 _savedRevisionId =
                     _currentRevisionId;
 
+
                 _pendingTerrainMaterialReplacements =
                     null;
 
@@ -7728,7 +8036,9 @@ namespace Ensemble
                 _terrainTextureDirty =
                     false;
 
-                _pendingTerrainXttReplacement = null;
+
+                _pendingTerrainXttReplacement =
+                    null;
 
 
                 _terrainXttDirty =
@@ -7738,8 +8048,9 @@ namespace Ensemble
                 UpdateDirtyState();
 
 
-                // Saved archive has new offsets/sizes/checksums/hashes.
-                // Rebuild TreeView tags from the newly reopened archive.
+                // Saved archive now has new offsets/sizes/checksums/hashes.
+                // Rebuild TreeView tags from the reopened archive.
+
                 BuildArchiveTree();
 
 
@@ -7747,8 +8058,13 @@ namespace Ensemble
 
 
                 StatusText.Text =
-                    $"Saved {Path.GetFileName(targetPath)} " +
-                    "with embedded ENSMAP1 manifest.";
+                    modifiedArtObjectTransformCount >
+                        0
+                        ? $"Saved {Path.GetFileName(targetPath)} | " +
+                          $"{modifiedArtObjectTransformCount} SC2 ArtObject " +
+                          $"transform(s) embedded | ENSMAP1 verified."
+                        : $"Saved {Path.GetFileName(targetPath)} " +
+                          "with embedded ENSMAP1 manifest.";
 
 
                 // =========================================================
@@ -7757,6 +8073,15 @@ namespace Ensemble
 
                 if (showSuccessDialog)
                 {
+                    string artObjectText =
+                        modifiedArtObjectTransformCount >
+                            0
+                            ? "\n" +
+                              $"SC2 ArtObject transforms: " +
+                              $"{modifiedArtObjectTransformCount}\n"
+                            : string.Empty;
+
+
                     MessageBox.Show(
                         this,
 
@@ -7769,9 +8094,11 @@ namespace Ensemble
 
                         $"Display name: {manifest.DisplayName}\n" +
                         $"Scenario: {manifest.ScenarioFile}\n" +
-                        $"Max players: {manifest.MaxPlayers}\n\n" +
+                        $"Max players: {manifest.MaxPlayers}\n" +
 
-                        "This ERA now contains its Ensemble map metadata.",
+                        artObjectText +
+
+                        "\nThis ERA now contains its Ensemble map metadata.",
 
                         "Save Complete",
 
