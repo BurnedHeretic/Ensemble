@@ -325,17 +325,23 @@ namespace Ensemble
             }
 
             // Delete Object
-            if (e.Key ==
-                Key.Delete &&
+            if (e.Key == Key.Delete &&
+                (
                 _selectedScenarioItem
-                is ScenarioObject &&
+                is ScenarioObject
+                ||
+                _selectedScenarioItem
+                is ScenarioArtObject
+                ) &&
                 Keyboard.FocusedElement
                 is not TextBox)
             {
                 DeleteSelectedObject();
 
+
                 e.Handled =
                     true;
+
 
                 return;
             }
@@ -1399,6 +1405,181 @@ namespace Ensemble
             }
         }
 
+        private sealed class DeleteArtObjectHistoryAction :
+            IScenarioHistoryAction
+        {
+            public DeleteArtObjectHistoryAction(
+                MainWindow owner,
+                ScenarioArtObject artObject,
+                int originalIndex,
+                byte[]? beforePendingState,
+                byte[] afterPendingState,
+                long beforeRevisionId,
+                long afterRevisionId)
+            {
+                Owner =
+                    owner;
+
+
+                ArtObject =
+                    artObject;
+
+
+                OriginalIndex =
+                    originalIndex;
+
+
+                BeforePendingState =
+                    beforePendingState?
+                        .ToArray();
+
+
+                AfterPendingState =
+                    afterPendingState
+                        .ToArray();
+
+
+                BeforeRevisionId =
+                    beforeRevisionId;
+
+
+                AfterRevisionId =
+                    afterRevisionId;
+            }
+
+
+            private MainWindow Owner
+            {
+                get;
+            }
+
+
+            private ScenarioArtObject ArtObject
+            {
+                get;
+            }
+
+
+            private int OriginalIndex
+            {
+                get;
+            }
+
+
+            private byte[]? BeforePendingState
+            {
+                get;
+            }
+
+
+            private byte[] AfterPendingState
+            {
+                get;
+            }
+
+
+            public long BeforeRevisionId
+            {
+                get;
+            }
+
+
+            public long AfterRevisionId
+            {
+                get;
+            }
+
+
+            public string Description =>
+                $"Delete {ArtObject.DisplayName}";
+
+
+            public void Undo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                Owner.RestoreArtObjectDeletionFromHistory(
+                    ArtObject,
+                    OriginalIndex,
+                    BeforePendingState);
+            }
+
+
+            public void Redo(
+                Ensemble.Controls.MapCanvas canvas)
+            {
+                Owner.ReapplyArtObjectDeletionFromHistory(
+                    ArtObject,
+                    AfterPendingState);
+            }
+        }
+
+        private void RestoreArtObjectDeletionFromHistory(ScenarioArtObject artObject,int originalIndex,byte[]? pendingState)
+        {
+            if (!_currentArtObjects.Any(
+                    obj =>
+                        ReferenceEquals(
+                            obj,
+                            artObject)))
+            {
+                int insertIndex =
+                    Math.Clamp(
+                        originalIndex,
+                        0,
+                        _currentArtObjects.Count);
+
+
+                _currentArtObjects.Insert(
+                    insertIndex,
+                    artObject);
+            }
+
+
+            _pendingArtObjectsSc2Replacement =
+                pendingState?
+                    .ToArray();
+
+
+            _artObjectsDirty =
+                _pendingArtObjectsSc2Replacement !=
+                null;
+
+
+            ScenarioMapCanvas
+                .SetArtObjects(
+                    _currentArtObjects);
+
+
+            ScenarioMapCanvas
+                .ClearSelection();
+        }
+
+
+        private void ReapplyArtObjectDeletionFromHistory(
+            ScenarioArtObject artObject,
+            byte[] pendingState)
+        {
+            _currentArtObjects.Remove(
+                artObject);
+
+
+            _pendingArtObjectsSc2Replacement =
+                pendingState
+                    .ToArray();
+
+
+            _artObjectsDirty =
+                true;
+
+
+            ScenarioMapCanvas
+                .SetArtObjects(
+                    _currentArtObjects);
+
+
+            ScenarioMapCanvas
+                .ClearSelection();
+        }
+
         private void ArchiveFile_MouseDoubleClick(
             object sender,
             System.Windows.Input.MouseButtonEventArgs e)
@@ -1948,14 +2129,21 @@ namespace Ensemble
             Ensemble.Controls.ScenarioSelectionChangedEventArgs e)
         {
 
-            bool objectSelected =
-                e.SelectedItem is ScenarioObject;
+            bool scenarioObjectSelected = e.SelectedItem is ScenarioObject;
+
+
+            bool deletableObjectSelected =
+                e.SelectedItem is ScenarioObject
+                ||
+                e.SelectedItem is ScenarioArtObject;
+
 
             DuplicateObjectMenuItem.IsEnabled =
-                objectSelected;
+                scenarioObjectSelected;
+
 
             DeleteObjectMenuItem.IsEnabled =
-                objectSelected;
+                deletableObjectSelected;
 
             _selectedScenarioItem =
                 e.SelectedItem;
@@ -8593,15 +8781,150 @@ namespace Ensemble
 
         private void DeleteSelectedObject()
         {
-            if (_selectedScenarioItem
-                is not ScenarioObject obj)
+            switch (_selectedScenarioItem)
             {
+                case ScenarioObject scenarioObject:
+
+                    ScenarioMapCanvas
+                        .DeleteScenarioObjectFromEditor(
+                            scenarioObject);
+
+                    return;
+
+
+                case ScenarioArtObject artObject:
+
+                    DeleteSelectedArtObject(
+                        artObject);
+
+                    return;
+            }
+        }
+
+        private void DeleteSelectedArtObject(ScenarioArtObject artObject)
+        {
+            if (_currentArtObjectsChunk ==
+                    null ||
+                _currentArtObjectsOriginalSc2Data ==
+                    null)
+            {
+                StatusText.Text =
+                    "No SC2 ArtObjects file is loaded.";
+
                 return;
             }
 
+
+            int objectIndex =
+                _currentArtObjects.IndexOf(
+                    artObject);
+
+
+            if (objectIndex <
+                0)
+            {
+                throw new InvalidOperationException(
+                    "The selected SC2 ArtObject is no longer " +
+                    "present in the current editor state.");
+            }
+
+
+            byte[]? beforePendingState =
+                _pendingArtObjectsSc2Replacement?
+                    .ToArray();
+
+
+            byte[] sourceSc2 =
+                beforePendingState
+                ??
+                _currentArtObjectsOriginalSc2Data;
+
+
+            byte[] afterPendingState =
+                ScenarioArtObjectsService
+                    .RemoveObjects(
+                        sourceSc2,
+                        new[]
+                        {
+                    artObject.Id
+                        },
+                        out int removedCount);
+
+
+            if (removedCount !=
+                1)
+            {
+                throw new InvalidDataException(
+                    "Expected exactly one SC2 ArtObject " +
+                    "to be deleted.");
+            }
+
+
+            // =========================================================
+            // EDITOR STATE
+            // =========================================================
+
+            _currentArtObjects.RemoveAt(
+                objectIndex);
+
+
+            _pendingArtObjectsSc2Replacement =
+                afterPendingState;
+
+
+            _artObjectsDirty =
+                true;
+
+
             ScenarioMapCanvas
-                .DeleteScenarioObjectFromEditor(
-                    obj);
+                .SetArtObjects(
+                    _currentArtObjects);
+
+
+            ScenarioMapCanvas
+                .ClearSelection();
+
+
+            // =========================================================
+            // HISTORY
+            // =========================================================
+
+            long beforeRevision =
+                _currentRevisionId;
+
+
+            long afterRevision =
+                ++_nextRevisionId;
+
+
+            _undoStack.Push(
+                new DeleteArtObjectHistoryAction(
+                    this,
+                    artObject,
+                    objectIndex,
+                    beforePendingState,
+                    afterPendingState,
+                    beforeRevision,
+                    afterRevision));
+
+
+            _redoStack.Clear();
+
+
+            _currentRevisionId =
+                afterRevision;
+
+
+            UpdateUndoRedoUi();
+
+
+            UpdateDirtyState();
+
+
+            StatusText.Text =
+                $"Deleted SC2 ArtObject " +
+                $"{artObject.DisplayName} | " +
+                $"ID {artObject.Id}";
         }
 
         private void ScenarioMapCanvas_ObjectDeleted(

@@ -103,6 +103,126 @@ namespace Ensemble.Services
                             obj.EditorName));
         }
 
+        // =========================================================
+        // REMOVE SPECIFIC ART OBJECTS
+        // =========================================================
+
+        public static byte[] RemoveObjects(
+            byte[] originalSc2XmbData,
+            IReadOnlyCollection<int> objectIds,
+            out int removedCount)
+        {
+            ArgumentNullException.ThrowIfNull(
+                originalSc2XmbData);
+
+            ArgumentNullException.ThrowIfNull(
+                objectIds);
+
+
+            HashSet<int> wantedIds =
+                objectIds
+                    .Distinct()
+                    .ToHashSet();
+
+
+            removedCount =
+                0;
+
+
+            if (wantedIds.Count ==
+                0)
+            {
+                return originalSc2XmbData
+                    .ToArray();
+            }
+
+
+            List<ScenarioArtObject> existingObjects =
+                ReadArtObjects(
+                    originalSc2XmbData);
+
+
+            HashSet<int> existingIds =
+                existingObjects
+                    .Select(
+                        obj =>
+                            obj.Id)
+                    .ToHashSet();
+
+
+            List<int> missingIds =
+                wantedIds
+                    .Where(
+                        id =>
+                            !existingIds.Contains(
+                                id))
+                    .ToList();
+
+
+            if (missingIds.Count >
+                0)
+            {
+                throw new InvalidDataException(
+                    "One or more SC2 ArtObjects could not be found.\n\n" +
+                    "Missing IDs:\n" +
+                    string.Join(
+                        ", ",
+                        missingIds));
+            }
+
+
+            ScenarioMap edit =
+                new ScenarioMap();
+
+
+            foreach (int id
+                     in wantedIds)
+            {
+                edit.DeletedObjectIds.Add(
+                    id);
+            }
+
+
+            byte[] rebuilt =
+                XmbDocumentService
+                    .WriteScenario(
+                        originalSc2XmbData,
+                        edit);
+
+
+            // =====================================================
+            // VERIFY
+            // =====================================================
+
+            HashSet<int> remainingIds =
+                ReadArtObjects(
+                    rebuilt)
+                    .Select(
+                        obj =>
+                            obj.Id)
+                    .ToHashSet();
+
+
+            foreach (int id
+                     in wantedIds)
+            {
+                if (remainingIds.Contains(
+                        id))
+                {
+                    throw new InvalidDataException(
+                        "SC2 ArtObject deletion failed verification.\n\n" +
+                        $"ID: {id}");
+                }
+            }
+
+
+            removedCount =
+                wantedIds.Count;
+
+
+            return rebuilt;
+        }
+
 
         // =========================================================
         // REMOVE VEGETATION

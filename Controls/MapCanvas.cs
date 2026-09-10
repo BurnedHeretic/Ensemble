@@ -339,6 +339,12 @@ namespace Ensemble.Controls
             RenderMap();
         }
 
+        public void ClearSelection()
+        {
+            SelectItem(
+                null);
+        }
+
         public void SetTerrainTextureMap(
             TerrainTextureMap? terrain)
         {
