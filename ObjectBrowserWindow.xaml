@@ -1,0 +1,356 @@
+﻿<Window x:Class="Ensemble.ObjectBrowserWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ENSEMBLE // OBJECT BROWSER"
+        Width="1180"
+        Height="760"
+        MinWidth="980"
+        MinHeight="620"
+        WindowStartupLocation="CenterOwner">
+    <Grid Background="{StaticResource HwBackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="3"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{StaticResource HwAccentBrush}"/>
+
+        <Border Grid.Row="1"
+                Background="{StaticResource HwPanelRaisedBrush}"
+                BorderBrush="{StaticResource HwLineBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="14,12">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left"
+                           Text="OBJECT BROWSER // ADD OR IMPORT"
+                           Style="{StaticResource HwPanelHeaderTextStyle}"
+                           VerticalAlignment="Center"/>
+
+                <Button DockPanel.Dock="Right"
+                        Content="CHANGE SOURCE ERA..."
+                        Width="165"
+                        Click="BrowseEra_Click"/>
+
+                <TextBox x:Name="DonorPathText"
+                         IsReadOnly="True"
+                         Margin="16,0,12,0"
+                         VerticalContentAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Row="2"
+                Background="{StaticResource HwPanelBrush}"
+                BorderBrush="{StaticResource HwLineBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="190"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="FILTER"
+                           Foreground="{StaticResource HwMutedTextBrush}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"/>
+
+                <TextBox x:Name="FilterText"
+                         Grid.Column="1"
+                         Height="28"
+                         TextChanged="FilterText_TextChanged"/>
+
+                <TextBlock Grid.Column="2"
+                           Text="LAYER"
+                           Foreground="{StaticResource HwMutedTextBrush}"
+                           VerticalAlignment="Center"
+                           Margin="16,0,8,0"/>
+
+                <ComboBox x:Name="LayerCombo"
+                          Grid.Column="3"
+                          Height="28"
+                          SelectionChanged="LayerCombo_SelectionChanged">
+                    <ComboBoxItem Content="All objects" IsSelected="True"/>
+                    <ComboBoxItem Content="SCN gameplay"/>
+                    <ComboBoxItem Content="SC2 art objects"/>
+                    <ComboBoxItem Content="Imported meshes"/>
+                </ComboBox>
+
+                <TextBlock x:Name="CountText"
+                           Grid.Column="4"
+                           Foreground="{StaticResource HwAccentBrightBrush}"
+                           Margin="16,0,0,0"
+                           VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="330"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0"
+                    Margin="12"
+                    Background="{StaticResource HwPanelBrush}"
+                    BorderBrush="{StaticResource HwLineBrush}"
+                    BorderThickness="1">
+                <ListBox x:Name="ObjectsList"
+                         SelectionChanged="ObjectsList_SelectionChanged"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling">
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel Orientation="Vertical"/>
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="{x:Type ListBoxItem}">
+                            <Setter Property="HorizontalContentAlignment"
+                                    Value="Stretch"/>
+                            <Setter Property="Padding"
+                                    Value="0"/>
+                            <Setter Property="Margin"
+                                    Value="0"/>
+                            <Setter Property="Background"
+                                    Value="Transparent"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                                        <Border x:Name="ItemBorder"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{StaticResource HwLineBrush}"
+                                                BorderThickness="0,0,0,1"
+                                                Padding="10">
+                                            <ContentPresenter/>
+                                        </Border>
+
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver"
+                                                     Value="True">
+                                                <Setter TargetName="ItemBorder"
+                                                        Property="Background"
+                                                        Value="{StaticResource HwPanelHoverBrush}"/>
+                                                <Setter TargetName="ItemBorder"
+                                                        Property="BorderBrush"
+                                                        Value="{StaticResource HwAccentMutedBrush}"/>
+                                            </Trigger>
+
+                                            <Trigger Property="IsSelected"
+                                                     Value="True">
+                                                <Setter TargetName="ItemBorder"
+                                                        Property="Background"
+                                                        Value="#183D54"/>
+                                                <Setter TargetName="ItemBorder"
+                                                        Property="BorderBrush"
+                                                        Value="{StaticResource HwAccentBrightBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid MinHeight="112">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="190"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="150"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0"
+                                        Width="180"
+                                        Height="96"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Background="#050D14"
+                                        BorderBrush="{StaticResource HwAccentMutedBrush}"
+                                        BorderThickness="1">
+                                    <Image Source="{Binding PreviewImage}"
+                                           Stretch="None"
+                                           SnapsToDevicePixels="True"/>
+                                </Border>
+
+                                <Grid Grid.Column="1"
+                                      Margin="12,0,12,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <DockPanel Grid.Row="0">
+                                        <Border DockPanel.Dock="Left"
+                                                Background="{StaticResource HwAccentMutedBrush}"
+                                                CornerRadius="2"
+                                                Padding="6,2"
+                                                Margin="0,0,8,0">
+                                            <TextBlock Text="{Binding LayerName}"
+                                                       FontSize="10"
+                                                       Foreground="White"/>
+                                        </Border>
+
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="15"
+                                                   Foreground="{StaticResource HwTextBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </DockPanel>
+
+                                    <TextBlock Grid.Row="1"
+                                               Text="{Binding Type}"
+                                               Foreground="{StaticResource HwMutedTextBrush}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,7,0,2"/>
+
+                                    <TextBlock Grid.Row="2"
+                                               Text="{Binding SourceFileName}"
+                                               Foreground="{StaticResource HwAccentBrightBrush}"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               Margin="0,4,0,0"/>
+
+                                    <TextBlock Grid.Row="3"
+                                               Text="{Binding PositionText}"
+                                               Foreground="{StaticResource HwMutedTextBrush}"
+                                               FontFamily="Consolas"
+                                               FontSize="11"
+                                               VerticalAlignment="Bottom"
+                                               Margin="0,5,0,0"/>
+                                </Grid>
+
+                                <StackPanel Grid.Column="2"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="OBJECT ID"
+                                               Foreground="{StaticResource HwMutedTextBrush}"
+                                               HorizontalAlignment="Right"
+                                               FontSize="10"/>
+                                    <TextBlock Text="{Binding Id}"
+                                               Foreground="{StaticResource HwAccentBrightBrush}"
+                                               HorizontalAlignment="Right"
+                                               FontSize="18"
+                                               FontWeight="SemiBold"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <Border Grid.Column="1"
+                    Background="{StaticResource HwPanelBrush}"
+                    BorderBrush="{StaticResource HwLineBrush}"
+                    BorderThickness="1,0,0,0"
+                    Padding="14">
+                <StackPanel>
+                    <TextBlock Text="SELECTED OBJECT"
+                               Style="{StaticResource HwPanelHeaderTextStyle}"
+                               Margin="0,0,0,14"/>
+
+                    <TextBlock Text="Name"
+                               Foreground="{StaticResource HwMutedTextBrush}"/>
+                    <TextBlock x:Name="SelectedNameText"
+                               Text="-"
+                               FontWeight="SemiBold"
+                               TextWrapping="Wrap"
+                               Margin="0,2,0,12"/>
+
+                    <TextBlock Text="Layer"
+                               Foreground="{StaticResource HwMutedTextBrush}"/>
+                    <TextBlock x:Name="SelectedLayerText"
+                               Text="-"
+                               Margin="0,2,0,12"/>
+
+                    <TextBlock Text="Type"
+                               Foreground="{StaticResource HwMutedTextBrush}"/>
+                    <TextBlock x:Name="SelectedTypeText"
+                               Text="-"
+                               TextWrapping="Wrap"
+                               Margin="0,2,0,12"/>
+
+                    <TextBlock Text="Position"
+                               Foreground="{StaticResource HwMutedTextBrush}"/>
+                    <TextBlock x:Name="SelectedPositionText"
+                               Text="-"
+                               FontFamily="Consolas"
+                               Margin="0,2,0,12"/>
+
+                    <TextBlock Text="Source file"
+                               Foreground="{StaticResource HwMutedTextBrush}"/>
+                    <TextBlock x:Name="SelectedSourceText"
+                               Text="-"
+                               TextWrapping="Wrap"
+                               Margin="0,2,0,16"/>
+
+                    <Separator/>
+
+                    <CheckBox x:Name="PreservePositionCheck"
+                              Content="Preserve source-map position"
+                              Margin="0,12,0,4"/>
+
+                    <TextBlock Text="When disabled, Ensemble places the object at the centre of the current map so it can be moved immediately."
+                               Foreground="{StaticResource HwMutedTextBrush}"
+                               TextWrapping="Wrap"
+                               FontSize="11"
+                               Margin="20,0,0,12"/>
+
+                    <TextBlock Text="The browser starts on the currently loaded map, so Add Object and cross-map import are now one workflow. Use Change Source ERA only when you want an object from another map."
+                               Foreground="{StaticResource HwMutedTextBrush}"
+                               TextWrapping="Wrap"
+                               FontSize="11"
+                               Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Custom meshes appear in this browser after Objects > Import Custom Mesh. Raw artist meshes are staged locally; Halo Wars UGX conversion and archive dependency injection are the next backend step before those entries can be placed in-game."
+                               Foreground="{StaticResource HwMutedTextBrush}"
+                               TextWrapping="Wrap"
+                               FontSize="11"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="4"
+                Background="{StaticResource HwPanelRaisedBrush}"
+                BorderBrush="{StaticResource HwLineBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="12">
+            <DockPanel>
+                <TextBlock x:Name="WarningText"
+                           Foreground="#E6B56C"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="700"/>
+
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal">
+                    <Button Content="CANCEL"
+                            Width="100"
+                            Margin="0,0,8,0"
+                            Click="Cancel_Click"/>
+
+                    <Button x:Name="ImportButton"
+                            Content="PLACE OBJECT"
+                            Width="145"
+                            IsEnabled="False"
+                            Click="Import_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

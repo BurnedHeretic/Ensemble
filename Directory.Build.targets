@@ -1,0 +1,10 @@
+﻿<Project>
+  <ItemGroup>
+    <None Update="Fonts\*.ttf"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Update="Fonts\*.otf"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

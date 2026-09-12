@@ -635,9 +635,6 @@ namespace Ensemble
             _currentScenarioChunk =
                 null;
 
-            ExportScenarioXmbMenuItem.IsEnabled =
-                false;
-
             ExtractAllMenuItem.IsEnabled =
                 true;
 
@@ -1638,9 +1635,6 @@ namespace Ensemble
 
                     TryLoadScenarioArtObjects(
                         chunk);
-
-                    ExportScenarioXmbMenuItem.IsEnabled =
-                        true;
 
                     SaveMenuItem.IsEnabled =
                         true;

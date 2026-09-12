@@ -38,13 +38,6 @@
 
                 <Separator/>
 
-                <MenuItem x:Name="ExportScenarioXmbMenuItem"
-                          Header="Export Modified SCN XMB..."
-                          Click="ExportScenarioXmb_Click"
-                          IsEnabled="False"/>
-
-                <Separator/>
-
                 <MenuItem x:Name="ExtractAllMenuItem"
                           Header="Extract All"
                           Click="ExtractAll_Click"
