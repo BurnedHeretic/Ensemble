@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using System.Windows.Media.Imaging;
 using NumericsVector3 = System.Numerics.Vector3;
 
 namespace Ensemble.Controls
@@ -17,6 +18,7 @@ namespace Ensemble.Controls
         private readonly Viewport3D _viewport;
         private readonly PerspectiveCamera _camera;
         private readonly Model3DGroup _root;
+        private readonly Model3DGroup _grid;
         private readonly Model3DGroup _objects;
         private readonly Dictionary<GeometryModel3D, object> _modelToItem = new();
         private readonly Dictionary<object, List<GeometryModel3D>> _itemToModels = new();
@@ -27,9 +29,13 @@ namespace Ensemble.Controls
         private TerrainHeightMap? _terrain;
         private IReadOnlyList<ScenarioArtObject> _artObjects = Array.Empty<ScenarioArtObject>();
         private ImageSource? _terrainTexture;
+        private ImageSource? _terrainHeightTexture;
 
         private object? _selectedItem;
         private bool _showObjects = true;
+        private bool _showGrid = true;
+        private TerrainDisplayMode _terrainDisplayMode =
+            TerrainDisplayMode.Texture;
 
         private Point3D _target;
         private double _yaw = -0.72;
@@ -65,6 +71,30 @@ namespace Ensemble.Controls
             }
         }
 
+        public bool ShowGrid
+        {
+            get => _showGrid;
+            set
+            {
+                if (_showGrid == value)
+                    return;
+
+                _showGrid = value;
+                RebuildGrid();
+            }
+        }
+
+        public void SetTerrainDisplayMode(
+            TerrainDisplayMode mode)
+        {
+            if (_terrainDisplayMode == mode)
+                return;
+
+            _terrainDisplayMode = mode;
+            RebuildTerrain();
+            RebuildGrid();
+        }
+
         public MapViewport3D()
         {
             Background =
@@ -94,6 +124,7 @@ namespace Ensemble.Controls
             _viewport.Camera = _camera;
 
             _root = new Model3DGroup();
+            _grid = new Model3DGroup();
             _objects = new Model3DGroup();
 
             _root.Children.Add(
@@ -110,6 +141,7 @@ namespace Ensemble.Controls
                     Color.FromRgb(0x45, 0xA0, 0xC8),
                     new Vector3D(0.55, -0.45, 0.35)));
 
+            _root.Children.Add(_grid);
             _root.Children.Add(_objects);
 
             _viewport.Children.Add(
@@ -190,8 +222,13 @@ namespace Ensemble.Controls
             _terrain = terrain;
             _artObjects = artObjects ?? Array.Empty<ScenarioArtObject>();
             _terrainTexture = terrainTexture;
+            _terrainHeightTexture =
+                terrain != null
+                    ? BuildHeightMapTexture(terrain)
+                    : null;
 
             RebuildTerrain();
+            RebuildGrid();
             RebuildObjects();
 
             if (mapChanged)
@@ -210,6 +247,43 @@ namespace Ensemble.Controls
         {
             _terrainTexture = terrainTexture;
             RebuildTerrain();
+        }
+
+        public void RefreshTerrain(
+            TerrainHeightMap? terrain)
+        {
+            _terrain = terrain;
+            _terrainHeightTexture =
+                terrain != null
+                    ? BuildHeightMapTexture(terrain)
+                    : null;
+
+            // Deliberately keep _terrainTexture unchanged. Terrain sculpting
+            // and flattening alter geometry, not the painted terrain texture.
+            RebuildTerrain();
+            RebuildGrid();
+        }
+
+        public void FocusItem(
+            object? item)
+        {
+            SelectItem(item);
+
+            if (item == null ||
+                !TryGetPosition(
+                    item,
+                    out NumericsVector3 position))
+            {
+                return;
+            }
+
+            _target =
+                new Point3D(
+                    position.X,
+                    position.Y,
+                    position.Z);
+
+            UpdateCamera();
         }
 
         public void SelectItem(
@@ -247,10 +321,20 @@ namespace Ensemble.Controls
             {
                 Model3D child = _root.Children[i];
 
-                if (child is Light || ReferenceEquals(child, _objects))
+                if (child is Light ||
+                    ReferenceEquals(child, _grid) ||
+                    ReferenceEquals(child, _objects))
+                {
                     continue;
+                }
 
                 _root.Children.RemoveAt(i);
+            }
+
+            if (_terrainDisplayMode ==
+                TerrainDisplayMode.Hidden)
+            {
+                return;
             }
 
             GeometryModel3D model =
@@ -261,8 +345,14 @@ namespace Ensemble.Controls
                     ? BuildTerrainModel(_terrain)
                     : BuildFlatGround();
 
-            int objectIndex = _root.Children.IndexOf(_objects);
-            _root.Children.Insert(Math.Max(2, objectIndex), model);
+            int gridIndex =
+                _root.Children.IndexOf(_grid);
+
+            _root.Children.Insert(
+                Math.Max(
+                    2,
+                    gridIndex),
+                model);
         }
 
         private GeometryModel3D BuildTerrainModel(
@@ -330,46 +420,211 @@ namespace Ensemble.Controls
 
         private MaterialGroup CreateTerrainMaterial()
         {
-            MaterialGroup material = new MaterialGroup();
+            MaterialGroup material =
+                new MaterialGroup();
 
-            if (_terrainTexture != null)
+            ImageSource? activeTexture =
+                _terrainDisplayMode ==
+                    TerrainDisplayMode.HeightMap
+                    ? _terrainHeightTexture
+                    : _terrainTexture;
+
+            if (activeTexture !=
+                null)
             {
                 ImageBrush brush =
-                    new ImageBrush(_terrainTexture)
+                    new ImageBrush(
+                        activeTexture)
                     {
-                        Stretch = Stretch.Fill,
-                        TileMode = TileMode.None,
-                        ViewportUnits = BrushMappingMode.RelativeToBoundingBox
+                        Stretch =
+                            Stretch.Fill,
+
+                        TileMode =
+                            TileMode.None,
+
+                        ViewportUnits =
+                            BrushMappingMode.RelativeToBoundingBox
                     };
 
                 if (brush.CanFreeze)
                     brush.Freeze();
 
-                material.Children.Add(new DiffuseMaterial(brush));
+                material.Children.Add(
+                    new DiffuseMaterial(
+                        brush));
+
                 material.Children.Add(
                     new EmissiveMaterial(
                         new SolidColorBrush(
-                            Color.FromArgb(35, 255, 255, 255))));
+                            _terrainDisplayMode ==
+                                TerrainDisplayMode.HeightMap
+                                ? Color.FromArgb(
+                                    28,
+                                    0x60,
+                                    0xC8,
+                                    0xFF)
+                                : Color.FromArgb(
+                                    24,
+                                    255,
+                                    255,
+                                    255))));
+
                 material.Children.Add(
                     new SpecularMaterial(
                         new SolidColorBrush(
-                            Color.FromArgb(80, 255, 255, 255)),
-                        12));
+                            Color.FromArgb(
+                                65,
+                                255,
+                                255,
+                                255)),
+                        10));
             }
             else
             {
                 material.Children.Add(
                     new DiffuseMaterial(
                         new SolidColorBrush(
-                            Color.FromRgb(0x4A, 0x54, 0x3C))));
+                            Color.FromRgb(
+                                0x4A,
+                                0x54,
+                                0x3C))));
+
                 material.Children.Add(
                     new SpecularMaterial(
                         new SolidColorBrush(
-                            Color.FromRgb(0x2D, 0x48, 0x55)),
+                            Color.FromRgb(
+                                0x2D,
+                                0x48,
+                                0x55)),
                         10));
             }
 
             return material;
+        }
+
+        private static BitmapSource BuildHeightMapTexture(
+            TerrainHeightMap terrain)
+        {
+            int width =
+                terrain.Width;
+
+            int height =
+                terrain.Height;
+
+            int stride =
+                checked(
+                    width *
+                    4);
+
+            byte[] pixels =
+                new byte[
+                    checked(
+                        stride *
+                        height)];
+
+            float minHeight =
+                terrain.MinHeight;
+
+            float maxHeight =
+                terrain.MaxHeight;
+
+            float range =
+                Math.Max(
+                    0.0001f,
+                    maxHeight -
+                    minHeight);
+
+            for (int z = 0;
+                 z < height;
+                 z++)
+            {
+                int bitmapY =
+                    height -
+                    1 -
+                    z;
+
+                for (int x = 0;
+                     x < width;
+                     x++)
+                {
+                    float value =
+                        terrain.Heights[
+                            z *
+                            width +
+                            x];
+
+                    float t =
+                        Math.Clamp(
+                            (
+                                value -
+                                minHeight
+                            )
+                            /
+                            range,
+                            0,
+                            1);
+
+                    // A slightly blue-tinted height visualization is easier
+                    // to read over actual geometry than a pure grey map.
+                    byte r =
+                        (byte)(
+                            25 +
+                            t *
+                            220);
+
+                    byte g =
+                        (byte)(
+                            45 +
+                            t *
+                            205);
+
+                    byte b =
+                        (byte)(
+                            65 +
+                            t *
+                            190);
+
+                    int p =
+                        bitmapY *
+                        stride +
+                        x *
+                        4;
+
+                    pixels[
+                        p] =
+                            b;
+
+                    pixels[
+                        p +
+                        1] =
+                            g;
+
+                    pixels[
+                        p +
+                        2] =
+                            r;
+
+                    pixels[
+                        p +
+                        3] =
+                            255;
+                }
+            }
+
+            BitmapSource bitmap =
+                BitmapSource.Create(
+                    width,
+                    height,
+                    96,
+                    96,
+                    PixelFormats.Bgra32,
+                    null,
+                    pixels,
+                    stride);
+
+            bitmap.Freeze();
+
+            return bitmap;
         }
 
         private GeometryModel3D BuildFlatGround()
@@ -463,6 +718,444 @@ namespace Ensemble.Controls
             Vector3D normal = new Vector3D(-(hr - hl) / dx, 1, -(hu - hd) / dz);
             normal.Normalize();
             return normal;
+        }
+
+        private void RebuildGrid()
+        {
+            _grid.Children.Clear();
+
+            if (!_showGrid ||
+                _map ==
+                    null)
+            {
+                return;
+            }
+
+            const int divisions =
+                16;
+
+            const int samplesPerLine =
+                32;
+
+            double width =
+                Math.Max(
+                    1,
+                    _map.MaxX -
+                    _map.MinX);
+
+            double depth =
+                Math.Max(
+                    1,
+                    _map.MaxZ -
+                    _map.MinZ);
+
+            double thickness =
+                Math.Clamp(
+                    Math.Max(
+                        width,
+                        depth)
+                    *
+                    0.00065,
+                    0.35,
+                    1.5);
+
+            MeshGeometry3D mesh =
+                new MeshGeometry3D();
+
+            for (int i = 0;
+                 i <= divisions;
+                 i++)
+            {
+                double t =
+                    i /
+                    (double)divisions;
+
+                double x =
+                    _map.MinX +
+                    width *
+                    t;
+
+                AddGridRibbon(
+                    mesh,
+                    true,
+                    x,
+                    _map.MinZ,
+                    _map.MaxZ,
+                    thickness,
+                    samplesPerLine);
+
+                double z =
+                    _map.MinZ +
+                    depth *
+                    t;
+
+                AddGridRibbon(
+                    mesh,
+                    false,
+                    z,
+                    _map.MinX,
+                    _map.MaxX,
+                    thickness,
+                    samplesPerLine);
+            }
+
+            if (mesh.Positions.Count ==
+                0)
+            {
+                return;
+            }
+
+            MaterialGroup material =
+                new MaterialGroup();
+
+            Color gridColor =
+                Color.FromArgb(
+                    170,
+                    0x43,
+                    0xC8,
+                    0xF5);
+
+            material.Children.Add(
+                new DiffuseMaterial(
+                    new SolidColorBrush(
+                        gridColor)));
+
+            material.Children.Add(
+                new EmissiveMaterial(
+                    new SolidColorBrush(
+                        Color.FromArgb(
+                            95,
+                            0x43,
+                            0xC8,
+                            0xF5))));
+
+            GeometryModel3D model =
+                new GeometryModel3D(
+                    mesh,
+                    material)
+                {
+                    BackMaterial =
+                        material
+                };
+
+            _grid.Children.Add(
+                model);
+        }
+
+        private void AddGridRibbon(
+            MeshGeometry3D mesh,
+            bool constantX,
+            double fixedCoordinate,
+            double minimum,
+            double maximum,
+            double thickness,
+            int samples)
+        {
+            for (int i = 0;
+                 i < samples;
+                 i++)
+            {
+                double a =
+                    i /
+                    (double)samples;
+
+                double b =
+                    (
+                        i +
+                        1
+                    )
+                    /
+                    (double)samples;
+
+                double first =
+                    minimum +
+                    (
+                        maximum -
+                        minimum
+                    )
+                    *
+                    a;
+
+                double second =
+                    minimum +
+                    (
+                        maximum -
+                        minimum
+                    )
+                    *
+                    b;
+
+                Point3D p0;
+                Point3D p1;
+                Point3D p2;
+                Point3D p3;
+
+                if (constantX)
+                {
+                    double y0 =
+                        SampleTerrainHeight(
+                            fixedCoordinate,
+                            first);
+
+                    double y1 =
+                        SampleTerrainHeight(
+                            fixedCoordinate,
+                            second);
+
+                    p0 =
+                        new Point3D(
+                            fixedCoordinate -
+                            thickness,
+                            y0 +
+                            0.45,
+                            first);
+
+                    p1 =
+                        new Point3D(
+                            fixedCoordinate +
+                            thickness,
+                            y0 +
+                            0.45,
+                            first);
+
+                    p2 =
+                        new Point3D(
+                            fixedCoordinate +
+                            thickness,
+                            y1 +
+                            0.45,
+                            second);
+
+                    p3 =
+                        new Point3D(
+                            fixedCoordinate -
+                            thickness,
+                            y1 +
+                            0.45,
+                            second);
+                }
+                else
+                {
+                    double y0 =
+                        SampleTerrainHeight(
+                            first,
+                            fixedCoordinate);
+
+                    double y1 =
+                        SampleTerrainHeight(
+                            second,
+                            fixedCoordinate);
+
+                    p0 =
+                        new Point3D(
+                            first,
+                            y0 +
+                            0.45,
+                            fixedCoordinate -
+                            thickness);
+
+                    p1 =
+                        new Point3D(
+                            first,
+                            y0 +
+                            0.45,
+                            fixedCoordinate +
+                            thickness);
+
+                    p2 =
+                        new Point3D(
+                            second,
+                            y1 +
+                            0.45,
+                            fixedCoordinate +
+                            thickness);
+
+                    p3 =
+                        new Point3D(
+                            second,
+                            y1 +
+                            0.45,
+                            fixedCoordinate -
+                            thickness);
+                }
+
+                int start =
+                    mesh.Positions.Count;
+
+                mesh.Positions.Add(
+                    p0);
+
+                mesh.Positions.Add(
+                    p1);
+
+                mesh.Positions.Add(
+                    p2);
+
+                mesh.Positions.Add(
+                    p3);
+
+                for (int n = 0;
+                     n < 4;
+                     n++)
+                {
+                    mesh.Normals.Add(
+                        new Vector3D(
+                            0,
+                            1,
+                            0));
+                }
+
+                mesh.TriangleIndices.Add(
+                    start);
+
+                mesh.TriangleIndices.Add(
+                    start +
+                    1);
+
+                mesh.TriangleIndices.Add(
+                    start +
+                    2);
+
+                mesh.TriangleIndices.Add(
+                    start);
+
+                mesh.TriangleIndices.Add(
+                    start +
+                    2);
+
+                mesh.TriangleIndices.Add(
+                    start +
+                    3);
+            }
+        }
+
+        private double SampleTerrainHeight(
+            double worldX,
+            double worldZ)
+        {
+            if (_terrain ==
+                    null ||
+                _terrain.Width <
+                    2 ||
+                _terrain.Height <
+                    2)
+            {
+                return 0;
+            }
+
+            double fx =
+                (
+                    worldX -
+                    _terrain.WorldMin.X
+                )
+                /
+                Math.Max(
+                    0.0001,
+                    _terrain.TileScale);
+
+            double fz =
+                (
+                    worldZ -
+                    _terrain.WorldMin.Z
+                )
+                /
+                Math.Max(
+                    0.0001,
+                    _terrain.TileScale);
+
+            fx =
+                Math.Clamp(
+                    fx,
+                    0,
+                    _terrain.Width -
+                    1);
+
+            fz =
+                Math.Clamp(
+                    fz,
+                    0,
+                    _terrain.Height -
+                    1);
+
+            int x0 =
+                (int)Math.Floor(
+                    fx);
+
+            int z0 =
+                (int)Math.Floor(
+                    fz);
+
+            int x1 =
+                Math.Min(
+                    x0 +
+                    1,
+                    _terrain.Width -
+                    1);
+
+            int z1 =
+                Math.Min(
+                    z0 +
+                    1,
+                    _terrain.Height -
+                    1);
+
+            double tx =
+                fx -
+                x0;
+
+            double tz =
+                fz -
+                z0;
+
+            float h00 =
+                _terrain.Heights[
+                    z0 *
+                    _terrain.Width +
+                    x0];
+
+            float h10 =
+                _terrain.Heights[
+                    z0 *
+                    _terrain.Width +
+                    x1];
+
+            float h01 =
+                _terrain.Heights[
+                    z1 *
+                    _terrain.Width +
+                    x0];
+
+            float h11 =
+                _terrain.Heights[
+                    z1 *
+                    _terrain.Width +
+                    x1];
+
+            double h0 =
+                h00 +
+                (
+                    h10 -
+                    h00
+                )
+                *
+                tx;
+
+            double h1 =
+                h01 +
+                (
+                    h11 -
+                    h01
+                )
+                *
+                tx;
+
+            return h0 +
+                (
+                    h1 -
+                    h0
+                )
+                *
+                tz;
         }
 
         private void RebuildObjects()

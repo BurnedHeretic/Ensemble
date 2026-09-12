@@ -127,7 +127,7 @@
                 <Separator/>
 
                 <MenuItem x:Name="TerrainTextureMenuItem"
-              Header="Show _Texture"
+              Header="Show _Terrain"
               IsCheckable="True"
               IsChecked="True"
               Click="TerrainTexture_Click"/>
@@ -142,28 +142,11 @@
               IsCheckable="True"
               Click="TerrainHidden_Click"/>
 
-                <Separator/>
-
                 <MenuItem x:Name="TerrainGridMenuItem"
               Header="Show _Grid"
               IsCheckable="True"
               IsChecked="True"
               Click="TerrainGrid_Click"/>
-
-                <Separator/>
-
-                <MenuItem Header="_Opacity">
-
-                    <MenuItem Header="50%"
-                  Click="TerrainOpacity50_Click"/>
-
-                    <MenuItem Header="75%"
-                  Click="TerrainOpacity75_Click"/>
-
-                    <MenuItem Header="100%"
-                  Click="TerrainOpacity100_Click"/>
-
-                </MenuItem>
 
                 <Separator/>
 

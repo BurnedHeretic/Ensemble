@@ -22,6 +22,56 @@ namespace Ensemble.Services
         private const int EcfChunkHeaderSize = 24;
         private const int XmxAttributeSize = 8;
 
+        public static HashSet<int> ReadObjectIds(
+            byte[] xmbData)
+        {
+            ArgumentNullException.ThrowIfNull(
+                xmbData);
+
+            XDocument document =
+                XDocument.Parse(
+                    XmbDocumentService.Read(
+                        xmbData));
+
+            HashSet<int> result =
+                new();
+
+            foreach (XElement element
+                     in document.Descendants())
+            {
+                if (!element.Name.LocalName.Equals(
+                        "Object",
+                        StringComparison.Ordinal)
+                    ||
+                    element.Parent ==
+                        null
+                    ||
+                    !element.Parent.Name.LocalName.Equals(
+                        "Objects",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (int.TryParse(
+                        element.Attribute(
+                            "ID")
+                            ?.Value,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int id)
+                    &&
+                    id >
+                        0)
+                {
+                    result.Add(
+                        id);
+                }
+            }
+
+            return result;
+        }
+
         public static byte[] CloneObjectSubtree(
             byte[] targetXmbData,
             byte[] sourceXmbData,

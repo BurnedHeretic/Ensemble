@@ -235,8 +235,7 @@ namespace Ensemble
                 (
                     _,
                     _) =>
-                    Refresh3DViewportNext(
-                        true);
+                    Refresh3DTerrainGeometryNext();
 
             ScenarioMapCanvas.IsVisibleChanged +=
                 (
@@ -263,6 +262,82 @@ namespace Ensemble
                             () =>
                                 Refresh3DViewportNext(
                                     true)));
+
+            // ---------------------------------------------------------
+            // 3D VIEWPORT LIVE-SYNC
+            // ---------------------------------------------------------
+            //
+            // The original menu handlers update the proven 2D/editor data.
+            // These follow-up handlers mirror the resulting state into the
+            // 3D presentation layer immediately.
+
+            RemoveAllVegetationMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                    Dispatcher.BeginInvoke(
+                        new Action(
+                            () =>
+                                Refresh3DViewportNext(
+                                    false)));
+
+            FlattenTerrainMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                    Dispatcher.BeginInvoke(
+                        new Action(
+                            Refresh3DTerrainGeometryNext));
+
+            ImportTerrainTextureMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                    Dispatcher.BeginInvoke(
+                        new Action(
+                            () =>
+                                Refresh3DViewportNext(
+                                    true)));
+
+            TerrainTextureMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                    _ensemble3DViewport?
+                        .SetTerrainDisplayMode(
+                            Ensemble.Controls
+                                .TerrainDisplayMode.Texture);
+
+            TerrainHeightMapMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                    _ensemble3DViewport?
+                        .SetTerrainDisplayMode(
+                            Ensemble.Controls
+                                .TerrainDisplayMode.HeightMap);
+
+            TerrainHiddenMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                    _ensemble3DViewport?
+                        .SetTerrainDisplayMode(
+                            Ensemble.Controls
+                                .TerrainDisplayMode.Hidden);
+
+            TerrainGridMenuItem.Click +=
+                (
+                    _,
+                    _) =>
+                {
+                    if (_ensemble3DViewport !=
+                        null)
+                    {
+                        _ensemble3DViewport.ShowGrid =
+                            TerrainGridMenuItem.IsChecked;
+                    }
+                };
 
             AddObjectsMenu();
         }
@@ -1058,6 +1133,19 @@ namespace Ensemble
             Refresh3DViewportNext(
                 true);
 
+            _ensemble3DViewport.ShowGrid =
+                TerrainGridMenuItem.IsChecked;
+
+            _ensemble3DViewport.SetTerrainDisplayMode(
+                TerrainHeightMapMenuItem.IsChecked
+                    ? Ensemble.Controls
+                        .TerrainDisplayMode.HeightMap
+                    : TerrainHiddenMenuItem.IsChecked
+                        ? Ensemble.Controls
+                            .TerrainDisplayMode.Hidden
+                        : Ensemble.Controls
+                            .TerrainDisplayMode.Texture);
+
             Update3DViewportVisibilityNext();
         }
 
@@ -1113,6 +1201,21 @@ namespace Ensemble
                 show
                     ? Visibility.Visible
                     : Visibility.Collapsed;
+        }
+
+        private void Refresh3DTerrainGeometryNext()
+        {
+            if (_ensemble3DViewport ==
+                    null
+                ||
+                ScenarioMapCanvas.Scenario ==
+                    null)
+            {
+                return;
+            }
+
+            _ensemble3DViewport.RefreshTerrain(
+                ScenarioMapCanvas.TerrainHeightMap);
         }
 
         private void Update3DViewportVisibilityNext()
@@ -1379,6 +1482,9 @@ namespace Ensemble
             Refresh3DViewportNext(
                 false);
 
+            HighlightPlacedObjectNext(
+                imported);
+
             PushEnsembleNextHistory(
                 new ArtObjectStructureHistoryAction(
                     this,
@@ -1468,6 +1574,9 @@ namespace Ensemble
             Refresh3DViewportNext(
                 false);
 
+            HighlightPlacedObjectNext(
+                imported);
+
             PushEnsembleNextHistory(
                 new ScenarioImportHistoryAction(
                     this,
@@ -1491,26 +1600,55 @@ namespace Ensemble
 
             HashSet<int> usedIds =
                 map.Objects
-                    .Select(obj => obj.Id)
+                    .Select(
+                        obj =>
+                            obj.Id)
                     .Concat(
                         _currentArtObjects
-                            .Select(obj => obj.Id))
+                            .Select(
+                                obj =>
+                                    obj.Id))
                     .Where(
                         id =>
-                            id > 0 &&
-                            id <= MaxSignedInt24)
+                            id >
+                                0
+                            &&
+                            id <=
+                                MaxSignedInt24)
                     .ToHashSet();
 
+            // ScenarioMap.Objects intentionally represents the objects the
+            // editor understands. XMB files can also contain structural
+            // objects that are not represented by that model. Those hidden
+            // IDs caused Preserve Position imports to collide with IDs such
+            // as 262 even though the visible object list considered them free.
+            AddStructuralObjectIds(
+                usedIds,
+                _currentScenarioOriginalXmbData,
+                MaxSignedInt24);
+
+            AddStructuralObjectIds(
+                usedIds,
+                _pendingArtObjectsSc2Replacement
+                ??
+                _currentArtObjectsOriginalSc2Data,
+                MaxSignedInt24);
+
             int highestUsed =
-                usedIds.Count == 0
+                usedIds.Count ==
+                    0
                     ? 0
                     : usedIds.Max();
 
             int candidate =
-                highestUsed + 1;
+                highestUsed +
+                1;
 
-            if (candidate <= MaxSignedInt24 &&
-                !usedIds.Contains(candidate))
+            if (candidate <=
+                    MaxSignedInt24
+                &&
+                !usedIds.Contains(
+                    candidate))
             {
                 map.MaxKnownId =
                     candidate;
@@ -1519,10 +1657,12 @@ namespace Ensemble
             }
 
             for (candidate = 1;
-                 candidate <= MaxSignedInt24;
+                 candidate <=
+                    MaxSignedInt24;
                  candidate++)
             {
-                if (!usedIds.Contains(candidate))
+                if (!usedIds.Contains(
+                        candidate))
                 {
                     map.MaxKnownId =
                         candidate;
@@ -1533,6 +1673,65 @@ namespace Ensemble
 
             throw new InvalidDataException(
                 "No free Halo Wars Object ID remains inside the signed Int24 range.");
+        }
+
+        private static void AddStructuralObjectIds(
+            HashSet<int> usedIds,
+            byte[]? xmbData,
+            int maximumId)
+        {
+            if (xmbData ==
+                null)
+            {
+                return;
+            }
+
+            try
+            {
+                foreach (int id
+                         in XmbObjectTransferService
+                             .ReadObjectIds(
+                                 xmbData))
+                {
+                    if (id >
+                            0
+                        &&
+                        id <=
+                            maximumId)
+                    {
+                        usedIds.Add(
+                            id);
+                    }
+                }
+            }
+            catch
+            {
+                // The parsed ScenarioMap IDs are still a safe fallback if a
+                // malformed optional companion XMB cannot be enumerated.
+            }
+        }
+
+        private void HighlightPlacedObjectNext(
+            object item)
+        {
+            _selectedScenarioItem =
+                item;
+
+            ScenarioSelectionChangedEventArgs args =
+                new ScenarioSelectionChangedEventArgs(
+                    item);
+
+            ScenarioMapCanvas_SelectionChanged(
+                ScenarioMapCanvas,
+                args);
+
+            EnsembleNext_SelectionChanged(
+                ScenarioMapCanvas,
+                args);
+
+            _ensemble3DViewport?
+                .FocusItem(
+                    item);
         }
 
         private void NormalizeLegacyScenarioObjectIdCounter()
