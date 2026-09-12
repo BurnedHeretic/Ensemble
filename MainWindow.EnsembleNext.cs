@@ -311,6 +311,9 @@ namespace Ensemble
             InitializeEraInfoMenuNext(
                 menu);
 
+            InitializeGameAssetsMenuNext(
+                menu);
+
             MenuItem objectsMenu =
                 new MenuItem
                 {
@@ -583,6 +586,131 @@ namespace Ensemble
                         ? _eraInfoSavedSplitterWidth
                         : new GridLength(0);
             }
+        }
+
+        private void InitializeGameAssetsMenuNext(
+            Menu menu)
+        {
+            MenuItem? toolsMenu =
+                FindTopLevelMenuItem(
+                    menu,
+                    "Tools");
+
+            if (toolsMenu ==
+                null)
+            {
+                return;
+            }
+
+            if (toolsMenu.Items.Count >
+                0)
+            {
+                toolsMenu.Items.Add(
+                    new Separator());
+            }
+
+            MenuItem locateAssets =
+                new MenuItem
+                {
+                    Header =
+                        "_Locate Halo Wars Game Assets..."
+                };
+
+            locateAssets.Click +=
+                (
+                    _,
+                    _) =>
+                    LocateHaloWarsGameAssetsNext();
+
+            toolsMenu.Items.Add(
+                locateAssets);
+
+            MenuItem rescanAssets =
+                new MenuItem
+                {
+                    Header =
+                        "_Rescan Halo Wars Game Assets"
+                };
+
+            rescanAssets.Click +=
+                (
+                    _,
+                    _) =>
+                {
+                    string message =
+                        HaloWarsAssetArchiveService
+                            .Rescan(
+                                _currentArchive);
+
+                    Refresh3DViewportNext(
+                        false);
+
+                    StatusText.Text =
+                        message;
+                };
+
+            toolsMenu.Items.Add(
+                rescanAssets);
+        }
+
+        private void LocateHaloWarsGameAssetsNext()
+        {
+            OpenFileDialog dialog =
+                new OpenFileDialog
+                {
+                    Title =
+                        "Locate Halo Wars root.era",
+
+                    Filter =
+                        "Halo Wars Root Archive (root.era)|root.era|" +
+                        "Halo Wars ERA (*.era)|*.era|" +
+                        "All Files (*.*)|*.*",
+
+                    CheckFileExists =
+                        true,
+
+                    Multiselect =
+                        false
+                };
+
+            if (dialog.ShowDialog(
+                    this) !=
+                true)
+            {
+                return;
+            }
+
+            if (!HaloWarsAssetArchiveService
+                    .ConfigureFromRootEra(
+                        dialog.FileName,
+                        out string message))
+            {
+                MessageBox.Show(
+                    this,
+                    message,
+                    "Halo Wars Game Assets",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+
+                StatusText.Text =
+                    message;
+
+                return;
+            }
+
+            Refresh3DViewportNext(
+                false);
+
+            StatusText.Text =
+                message;
+
+            MessageBox.Show(
+                this,
+                message +
+                "\n\nThe 3D viewport will now resolve models from the map ERA and Halo Wars' shared archives.",
+                "Halo Wars Game Assets",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
 
         private static MenuItem? FindTopLevelMenuItem(

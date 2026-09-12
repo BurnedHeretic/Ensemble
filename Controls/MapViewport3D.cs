@@ -1,5 +1,6 @@
 ﻿using Ensemble.Models;
 using Ensemble.Services;
+using System.Globalization;
 using System.Numerics;
 using System.Windows;
 using System.Windows.Controls;
@@ -502,7 +503,278 @@ namespace Ensemble.Controls
                     obj.Type);
             }
 
+            // Player starts are not normal SCN objects. Halo Wars uses these
+            // <Positions> entries as runtime spawn anchors, which is why the
+            // old 2D viewport showed P1/P2 but the 3D object pass missed them.
+            foreach (ScenarioPlayerStart start
+                     in _map.PlayerStarts)
+            {
+                AddPlayerStart(
+                    start);
+            }
+
             UpdateSelectionMaterials();
+        }
+
+        private void AddPlayerStart(
+            ScenarioPlayerStart start)
+        {
+            // A skirmish start does not store a faction in the scenario.
+            // The game chooses the leader/civilisation at runtime and creates
+            // that leader's StartingUnits at this position.  Therefore the
+            // editor renders the real neutral base socket as the factual map
+            // footprint, then overlays the P1/P2/etc editor label.
+
+            Color accent =
+                GetPlayerStartColor(
+                    start);
+
+            bool renderedNativePad =
+                false;
+
+            if (_archive !=
+                null)
+            {
+                UgxMeshService.UgxMeshAsset? basePad =
+                    UgxMeshService.TryLoadForObject(
+                        _archive,
+                        "game_base_socket_01",
+                        "game_base_socket_01");
+
+                if (basePad !=
+                        null
+                    &&
+                    basePad.Parts.Count >
+                        0)
+                {
+                    AddNativeMesh(
+                        start,
+                        basePad,
+                        start.Position,
+                        start.Forward,
+                        accent);
+
+                    renderedNativePad =
+                        true;
+                }
+            }
+
+            if (!renderedNativePad)
+            {
+                AddEditorGizmo(
+                    start,
+                    start.Position,
+                    start.Forward,
+                    accent);
+            }
+
+            AddPlayerStartLabel(
+                start,
+                accent);
+        }
+
+        private static Color GetPlayerStartColor(
+            ScenarioPlayerStart start)
+        {
+            // Keep the first few starts visually distinct without implying
+            // UNSC/Covenant faction assignment.
+            return start.Player switch
+            {
+                1 =>
+                    Color.FromRgb(
+                        0x42,
+                        0xB8,
+                        0xFF),
+
+                2 =>
+                    Color.FromRgb(
+                        0xFF,
+                        0x73,
+                        0x73),
+
+                3 =>
+                    Color.FromRgb(
+                        0x62,
+                        0xE2,
+                        0x86),
+
+                4 =>
+                    Color.FromRgb(
+                        0xD0,
+                        0x86,
+                        0xFF),
+
+                _ =>
+                    Color.FromRgb(
+                        0xFF,
+                        0xD4,
+                        0x55)
+            };
+        }
+
+        private void AddPlayerStartLabel(
+            ScenarioPlayerStart start,
+            Color accent)
+        {
+            string label =
+                "P" +
+                Math.Max(
+                    1,
+                    start.Player)
+                    .ToString(
+                        CultureInfo.InvariantCulture);
+
+            Material material =
+                CreatePlayerStartLabelMaterial(
+                    label,
+                    accent);
+
+            double width =
+                Math.Clamp(
+                    _markerSize *
+                    3.4,
+                    18,
+                    55);
+
+            double height =
+                Math.Clamp(
+                    _markerSize *
+                    1.55,
+                    9,
+                    28);
+
+            GeometryModel3D model =
+                new GeometryModel3D(
+                    BuildCrossPlane(
+                        width,
+                        height),
+                    material)
+                {
+                    BackMaterial =
+                        material,
+
+                    Transform =
+                        CreateObjectTransform(
+                            start.Position,
+                            start.Forward,
+                            Math.Clamp(
+                                _markerSize *
+                                3.2,
+                                20,
+                                70))
+                };
+
+            _objects.Children.Add(
+                model);
+
+            _modelToItem[
+                model] =
+                    start;
+
+            _baseMaterials[
+                model] =
+                    material;
+
+            if (!_itemToModels.TryGetValue(
+                    start,
+                    out List<GeometryModel3D>? models))
+            {
+                models =
+                    new List<GeometryModel3D>();
+
+                _itemToModels[
+                    start] =
+                        models;
+            }
+
+            models.Add(
+                model);
+        }
+
+        private static Material CreatePlayerStartLabelMaterial(
+            string label,
+            Color accent)
+        {
+            DrawingGroup drawing =
+                new DrawingGroup();
+
+            drawing.Children.Add(
+                new GeometryDrawing(
+                    new SolidColorBrush(
+                        Color.FromArgb(
+                            225,
+                            0x05,
+                            0x11,
+                            0x1B)),
+                    new Pen(
+                        new SolidColorBrush(
+                            accent),
+                        0.055),
+                    new RectangleGeometry(
+                        new Rect(
+                            0.02,
+                            0.04,
+                            0.96,
+                            0.92),
+                        0.08,
+                        0.08)));
+
+            FormattedText formatted =
+                new FormattedText(
+                    label,
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    new Typeface(
+                        new FontFamily(
+                            "Bahnschrift SemiCondensed"),
+                        FontStyles.Normal,
+                        FontWeights.Bold,
+                        FontStretches.Normal),
+                    0.58,
+                    Brushes.White,
+                    1.0);
+
+            Geometry textGeometry =
+                formatted.BuildGeometry(
+                    new System.Windows.Point(
+                        0.5 -
+                        formatted.Width /
+                        2.0,
+                        0.5 -
+                        formatted.Height /
+                        2.0));
+
+            drawing.Children.Add(
+                new GeometryDrawing(
+                    Brushes.White,
+                    null,
+                    textGeometry));
+
+            DrawingBrush brush =
+                new DrawingBrush(
+                    drawing)
+                {
+                    Stretch =
+                        Stretch.Fill
+                };
+
+            MaterialGroup material =
+                new MaterialGroup();
+
+            material.Children.Add(
+                new DiffuseMaterial(
+                    brush));
+
+            material.Children.Add(
+                new EmissiveMaterial(
+                    new SolidColorBrush(
+                        Color.FromArgb(
+                            50,
+                            accent.R,
+                            accent.G,
+                            accent.B))));
+
+            return material;
         }
 
         private void AddRenderedObject(
@@ -539,6 +811,19 @@ namespace Ensemble.Controls
                     position,
                     forward,
                     accent);
+
+                return;
+            }
+
+            if (ShouldRenderAsEditorGizmo(
+                    safeType))
+            {
+                AddEditorGizmo(
+                    item,
+                    position,
+                    forward,
+                    GetEditorGizmoColor(
+                        safeType));
 
                 return;
             }
@@ -593,6 +878,255 @@ namespace Ensemble.Controls
             {
                 _itemToModels[item] = models;
             }
+        }
+
+        private static bool ShouldRenderAsEditorGizmo(
+            string type)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    type))
+            {
+                return false;
+            }
+
+            string value =
+                type.ToLowerInvariant();
+
+            return value.StartsWith(
+                       "sys_creep",
+                       StringComparison.Ordinal)
+                   ||
+                   value.StartsWith(
+                       "sys_marker_",
+                       StringComparison.Ordinal)
+                   ||
+                   value.StartsWith(
+                       "sys_rebelmarker_",
+                       StringComparison.Ordinal)
+                   ||
+                   value.StartsWith(
+                       "sys_unitstart",
+                       StringComparison.Ordinal)
+                   ||
+                   value.Contains(
+                       "difficulty",
+                       StringComparison.Ordinal)
+                   ||
+                   value.Contains(
+                       "reward",
+                       StringComparison.Ordinal);
+        }
+
+        private static Color GetEditorGizmoColor(
+            string type)
+        {
+            string value =
+                type.ToLowerInvariant();
+
+            if (value.Contains(
+                    "difficulty",
+                    StringComparison.Ordinal))
+            {
+                return Color.FromRgb(
+                    0xCB,
+                    0x7C,
+                    0xFF);
+            }
+
+            if (value.Contains(
+                    "reward",
+                    StringComparison.Ordinal))
+            {
+                return Color.FromRgb(
+                    0xFF,
+                    0xD3,
+                    0x44);
+            }
+
+            if (value.Contains(
+                    "creepworld",
+                    StringComparison.Ordinal))
+            {
+                return Color.FromRgb(
+                    0x55,
+                    0xE0,
+                    0xC1);
+            }
+
+            if (value.Contains(
+                    "crate",
+                    StringComparison.Ordinal))
+            {
+                return Color.FromRgb(
+                    0xC9,
+                    0x9B,
+                    0x63);
+            }
+
+            if (value.Contains(
+                    "sniper",
+                    StringComparison.Ordinal))
+            {
+                return Color.FromRgb(
+                    0x54,
+                    0xC9,
+                    0xFF);
+            }
+
+            return Color.FromRgb(
+                0xF0,
+                0x87,
+                0x87);
+        }
+
+        private void AddEditorGizmo(
+            object item,
+            NumericsVector3 position,
+            NumericsVector3 forward,
+            Color color)
+        {
+            double radius =
+                Math.Clamp(
+                    _markerSize *
+                    0.55,
+                    2.5,
+                    9.0);
+
+            MaterialGroup material =
+                new MaterialGroup();
+
+            material.Children.Add(
+                new DiffuseMaterial(
+                    new SolidColorBrush(
+                        Color.FromArgb(
+                            210,
+                            color.R,
+                            color.G,
+                            color.B))));
+
+            material.Children.Add(
+                new EmissiveMaterial(
+                    new SolidColorBrush(
+                        Color.FromArgb(
+                            90,
+                            color.R,
+                            color.G,
+                            color.B))));
+
+            GeometryModel3D model =
+                new GeometryModel3D(
+                    BuildOctahedron(
+                        radius),
+                    material)
+                {
+                    BackMaterial =
+                        material,
+
+                    Transform =
+                        CreateObjectTransform(
+                            position,
+                            forward,
+                            radius)
+                };
+
+            _objects.Children.Add(
+                model);
+
+            _modelToItem[
+                model] =
+                    item;
+
+            _baseMaterials[
+                model] =
+                    material;
+
+            _itemToModels[
+                item] =
+                    new List<GeometryModel3D>
+                    {
+                        model
+                    };
+        }
+
+        private static MeshGeometry3D BuildOctahedron(
+            double radius)
+        {
+            Point3D top =
+                new Point3D(
+                    0,
+                    radius,
+                    0);
+
+            Point3D bottom =
+                new Point3D(
+                    0,
+                    -radius,
+                    0);
+
+            Point3D east =
+                new Point3D(
+                    radius,
+                    0,
+                    0);
+
+            Point3D west =
+                new Point3D(
+                    -radius,
+                    0,
+                    0);
+
+            Point3D north =
+                new Point3D(
+                    0,
+                    0,
+                    radius);
+
+            Point3D south =
+                new Point3D(
+                    0,
+                    0,
+                    -radius);
+
+            Point3D[] points =
+            {
+                top,
+                east,
+                north,
+                west,
+                south,
+                bottom
+            };
+
+            int[] triangles =
+            {
+                0, 1, 2,
+                0, 2, 3,
+                0, 3, 4,
+                0, 4, 1,
+                5, 2, 1,
+                5, 3, 2,
+                5, 4, 3,
+                5, 1, 4
+            };
+
+            MeshGeometry3D mesh =
+                new MeshGeometry3D
+                {
+                    Positions =
+                        new Point3DCollection(
+                            points),
+
+                    TriangleIndices =
+                        new Int32Collection(
+                            triangles)
+                };
+
+            if (mesh.CanFreeze)
+            {
+                mesh.Freeze();
+            }
+
+            return mesh;
         }
 
         private void AddPreviewImpostor(
@@ -888,6 +1422,7 @@ namespace Ensemble.Controls
             {
                 ScenarioObject obj => obj.Forward,
                 ScenarioArtObject art => art.Forward,
+                ScenarioPlayerStart start => start.Forward,
                 _ => NumericsVector3.UnitZ
             };
         }
@@ -1131,9 +1666,15 @@ namespace Ensemble.Controls
                 case ScenarioObject obj:
                     position = obj.Position;
                     return true;
+
                 case ScenarioArtObject art:
                     position = art.Position;
                     return true;
+
+                case ScenarioPlayerStart start:
+                    position = start.Position;
+                    return true;
+
                 default:
                     position = default;
                     return false;
@@ -1147,8 +1688,13 @@ namespace Ensemble.Controls
                 case ScenarioObject obj:
                     obj.Position = position;
                     break;
+
                 case ScenarioArtObject art:
                     art.Position = position;
+                    break;
+
+                case ScenarioPlayerStart start:
+                    start.Position = position;
                     break;
             }
         }

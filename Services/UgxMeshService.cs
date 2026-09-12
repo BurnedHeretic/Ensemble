@@ -58,8 +58,25 @@ namespace Ensemble.Services
                 new(
                     StringComparer.OrdinalIgnoreCase);
 
+        private static readonly Dictionary<string, List<UgxIndexEntry>>
+            ArchiveIndexCache =
+                new(
+                    StringComparer.OrdinalIgnoreCase);
+
+        private static readonly Dictionary<string, UgxMeshAsset?>
+            ResolutionCache =
+                new(
+                    StringComparer.OrdinalIgnoreCase);
+
         public sealed class UgxMeshAsset
         {
+            public string SourceArchivePath
+            {
+                get;
+                init;
+            } =
+                string.Empty;
+
             public string SourceFileName
             {
                 get;
@@ -105,64 +122,124 @@ namespace Ensemble.Services
             ArgumentNullException.ThrowIfNull(
                 archive);
 
-            EraChunkInfo? chunk =
-                FindBestUgxChunk(
-                    archive,
+            IReadOnlyList<EraArchiveInfo> archives =
+                HaloWarsAssetArchiveService
+                    .GetSearchArchives(
+                        archive);
+
+            string resolutionKey =
+                string.Join(
+                    "|",
+                    archives.Select(
+                        item =>
+                            item.FilePath))
+                +
+                "||" +
+                type +
+                "||" +
+                editorName;
+
+            if (ResolutionCache.TryGetValue(
+                    resolutionKey,
+                    out UgxMeshAsset? resolved))
+            {
+                return resolved;
+            }
+
+            List<ResolvedUgxCandidate> matches =
+                FindBestUgxCandidates(
+                    archives,
                     type,
                     editorName);
 
-            if (chunk ==
-                null)
+            foreach (ResolvedUgxCandidate match
+                     in matches)
             {
-                return null;
+                string cacheKey =
+                    match.Archive.FilePath +
+                    "|" +
+                    match.Chunk.Index +
+                    "|" +
+                    match.Chunk.Adler32.ToString(
+                        "X8");
+
+                if (AssetCache.TryGetValue(
+                        cacheKey,
+                        out UgxMeshAsset? cached))
+                {
+                    if (cached !=
+                        null)
+                    {
+                        ResolutionCache[
+                            resolutionKey] =
+                                cached;
+
+                        return cached;
+                    }
+
+                    continue;
+                }
+
+                try
+                {
+                    byte[] ugxData =
+                        EraExtractionService.ExtractChunk(
+                            match.Archive,
+                            match.Chunk);
+
+                    UgxMeshAsset asset =
+                        ParseUgx(
+                            match.Archive,
+                            match.Chunk.FileName,
+                            ugxData);
+
+                    if (asset.Parts.Count ==
+                        0)
+                    {
+                        AssetCache[
+                            cacheKey] =
+                                null;
+
+                        continue;
+                    }
+
+                    AssetCache[
+                        cacheKey] =
+                            asset;
+
+                    ResolutionCache[
+                        resolutionKey] =
+                            asset;
+
+                    return asset;
+                }
+                catch
+                {
+                    // A fuzzy match or optional/unsupported UGX must not
+                    // prevent the resolver from trying the next candidate.
+                    AssetCache[
+                        cacheKey] =
+                            null;
+                }
             }
 
-            string cacheKey =
-                archive.FilePath +
-                "|" +
-                chunk.Index +
-                "|" +
-                chunk.Adler32.ToString(
-                    "X8");
+            ResolutionCache[
+                resolutionKey] =
+                    null;
 
-            if (AssetCache.TryGetValue(
-                    cacheKey,
-                    out UgxMeshAsset? cached))
-            {
-                return cached;
-            }
-
-            try
-            {
-                byte[] ugxData =
-                    EraExtractionService.ExtractChunk(
-                        archive,
-                        chunk);
-
-                UgxMeshAsset asset =
-                    ParseUgx(
-                        archive,
-                        chunk.FileName,
-                        ugxData);
-
-                AssetCache[
-                    cacheKey] =
-                        asset;
-
-                return asset;
-            }
-            catch
-            {
-                AssetCache[
-                    cacheKey] =
-                        null;
-
-                return null;
-            }
+            return null;
         }
 
-        private static EraChunkInfo? FindBestUgxChunk(
-            EraArchiveInfo archive,
+        public static void ClearCaches()
+        {
+            AssetCache.Clear();
+            TextureCache.Clear();
+            ArchiveIndexCache.Clear();
+            ResolutionCache.Clear();
+        }
+
+        private static List<ResolvedUgxCandidate> FindBestUgxCandidates(
+            IReadOnlyList<EraArchiveInfo> archives,
             string type,
             string editorName)
         {
@@ -171,11 +248,88 @@ namespace Ensemble.Services
                     type,
                     editorName);
 
-            EraChunkInfo? best =
-                null;
+            List<ResolvedUgxCandidate> matches =
+                new();
 
-            int bestScore =
-                0;
+            for (int archivePriority = 0;
+                 archivePriority <
+                 archives.Count;
+                 archivePriority++)
+            {
+                EraArchiveInfo archive =
+                    archives[
+                        archivePriority];
+
+                foreach (UgxIndexEntry entry
+                         in GetArchiveIndex(
+                             archive))
+                {
+                    int score =
+                        0;
+
+                    foreach (AssetSearchCandidate candidate
+                             in candidates)
+                    {
+                        score =
+                            Math.Max(
+                                score,
+                                ScoreCandidate(
+                                    entry.Key,
+                                    entry.Base,
+                                    entry.Tokens,
+                                    candidate));
+                    }
+
+                    if (score >=
+                        360)
+                    {
+                        matches.Add(
+                            new ResolvedUgxCandidate
+                            {
+                                Archive =
+                                    archive,
+
+                                Chunk =
+                                    entry.Chunk,
+
+                                Score =
+                                    score,
+
+                                ArchivePriority =
+                                    archivePriority
+                            });
+                    }
+                }
+            }
+
+            return matches
+                .OrderByDescending(
+                    item =>
+                        item.Score)
+                .ThenBy(
+                    item =>
+                        item.ArchivePriority)
+                .Take(
+                    32)
+                .ToList();
+        }
+
+        private static IReadOnlyList<UgxIndexEntry> GetArchiveIndex(
+            EraArchiveInfo archive)
+        {
+            string key =
+                Path.GetFullPath(
+                    archive.FilePath);
+
+            if (ArchiveIndexCache.TryGetValue(
+                    key,
+                    out List<UgxIndexEntry>? cached))
+            {
+                return cached;
+            }
+
+            List<UgxIndexEntry> result =
+                new();
 
             foreach (EraChunkInfo chunk
                      in archive.Chunks)
@@ -195,45 +349,30 @@ namespace Ensemble.Services
                     NormaliseAssetKey(
                         chunk.FileName);
 
-                string assetBase =
-                    GetBaseName(
-                        assetKey);
+                result.Add(
+                    new UgxIndexEntry
+                    {
+                        Chunk =
+                            chunk,
 
-                HashSet<string> assetTokens =
-                    TokeniseAssetName(
-                        assetKey);
+                        Key =
+                            assetKey,
 
-                int score =
-                    0;
+                        Base =
+                            GetBaseName(
+                                assetKey),
 
-                foreach (AssetSearchCandidate candidate
-                         in candidates)
-                {
-                    score =
-                        Math.Max(
-                            score,
-                            ScoreCandidate(
-                                assetKey,
-                                assetBase,
-                                assetTokens,
-                                candidate));
-                }
-
-                if (score >
-                    bestScore)
-                {
-                    bestScore =
-                        score;
-
-                    best =
-                        chunk;
-                }
+                        Tokens =
+                            TokeniseAssetName(
+                                assetKey)
+                    });
             }
 
-            return bestScore >=
-                360
-                ? best
-                : null;
+            ArchiveIndexCache[
+                key] =
+                    result;
+
+            return result;
         }
 
         private static List<AssetSearchCandidate> BuildSearchCandidates(
@@ -963,6 +1102,67 @@ namespace Ensemble.Services
                 : value;
         }
 
+        private sealed class ResolvedUgxCandidate
+        {
+            public EraArchiveInfo Archive
+            {
+                get;
+                init;
+            } =
+                null!;
+
+            public EraChunkInfo Chunk
+            {
+                get;
+                init;
+            } =
+                null!;
+
+            public int Score
+            {
+                get;
+                init;
+            }
+
+            public int ArchivePriority
+            {
+                get;
+                init;
+            }
+        }
+
+        private sealed class UgxIndexEntry
+        {
+            public EraChunkInfo Chunk
+            {
+                get;
+                init;
+            } =
+                null!;
+
+            public string Key
+            {
+                get;
+                init;
+            } =
+                string.Empty;
+
+            public string Base
+            {
+                get;
+                init;
+            } =
+                string.Empty;
+
+            public HashSet<string> Tokens
+            {
+                get;
+                init;
+            } =
+                new(
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
         private sealed class AssetSearchCandidate
         {
             public string Key
@@ -1087,6 +1287,9 @@ namespace Ensemble.Services
             UgxMeshAsset asset =
                 new UgxMeshAsset
                 {
+                    SourceArchivePath =
+                        archive.FilePath,
+
                     SourceFileName =
                         sourceFileName
                 };
@@ -2572,43 +2775,70 @@ namespace Ensemble.Services
                 diffusePaths[
                     textureIndex];
 
-            EraChunkInfo? chunk =
-                FindTextureChunk(
-                    archive,
-                    path);
-
-            if (chunk ==
-                null)
+            foreach (EraArchiveInfo textureArchive
+                     in HaloWarsAssetArchiveService
+                         .GetSearchArchives(
+                             archive))
             {
-                return null;
+                EraChunkInfo? chunk =
+                    FindTextureChunk(
+                        textureArchive,
+                        path);
+
+                if (chunk ==
+                    null)
+                {
+                    continue;
+                }
+
+                string cacheKey =
+                    textureArchive.FilePath +
+                    "|tex|" +
+                    chunk.Index +
+                    "|" +
+                    chunk.Adler32.ToString(
+                        "X8");
+
+                if (TextureCache.TryGetValue(
+                        cacheKey,
+                        out BitmapSource? cached))
+                {
+                    if (cached !=
+                        null)
+                    {
+                        return cached;
+                    }
+
+                    continue;
+                }
+
+                try
+                {
+                    BitmapSource? decoded =
+                        DdsTextureDecoderService.TryDecode(
+                            EraExtractionService.ExtractChunk(
+                                textureArchive,
+                                chunk));
+
+                    TextureCache[
+                        cacheKey] =
+                            decoded;
+
+                    if (decoded !=
+                        null)
+                    {
+                        return decoded;
+                    }
+                }
+                catch
+                {
+                    TextureCache[
+                        cacheKey] =
+                            null;
+                }
             }
 
-            string cacheKey =
-                archive.FilePath +
-                "|tex|" +
-                chunk.Index +
-                "|" +
-                chunk.Adler32.ToString(
-                    "X8");
-
-            if (TextureCache.TryGetValue(
-                    cacheKey,
-                    out BitmapSource? cached))
-            {
-                return cached;
-            }
-
-            BitmapSource? decoded =
-                DdsTextureDecoderService.TryDecode(
-                    EraExtractionService.ExtractChunk(
-                        archive,
-                        chunk));
-
-            TextureCache[
-                cacheKey] =
-                    decoded;
-
-            return decoded;
+            return null;
         }
 
         private static EraChunkInfo? FindTextureChunk(
