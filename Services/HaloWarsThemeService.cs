@@ -8,13 +8,13 @@ namespace Ensemble.Services
 {
     internal static class HaloWarsThemeService
     {
-        private static readonly Color Background = Color.FromRgb(0x06, 0x11, 0x1B);
-        private static readonly Color Panel = Color.FromRgb(0x0A, 0x18, 0x24);
-        private static readonly Color Raised = Color.FromRgb(0x10, 0x27, 0x38);
-        private static readonly Color Accent = Color.FromRgb(0x43, 0xC8, 0xF5);
-        private static readonly Color Line = Color.FromRgb(0x31, 0x5E, 0x73);
-        private static readonly Color Text = Color.FromRgb(0xEA, 0xF9, 0xFF);
-        private static readonly Color Muted = Color.FromRgb(0x8D, 0xA8, 0xB8);
+        private static readonly Color Background = Color.FromRgb(0x07, 0x1B, 0x2B);
+        private static readonly Color Panel = Color.FromRgb(0x0B, 0x26, 0x38);
+        private static readonly Color Raised = Color.FromRgb(0x17, 0x38, 0x4C);
+        private static readonly Color Accent = Color.FromRgb(0x6E, 0xA8, 0xC3);
+        private static readonly Color Line = Color.FromRgb(0x4B, 0x6D, 0x7E);
+        private static readonly Color Text = Color.FromRgb(0xED, 0xF3, 0xF5);
+        private static readonly Color Muted = Color.FromRgb(0x82, 0x9C, 0xAB);
 
         public static void Apply(Window window)
         {
@@ -214,9 +214,9 @@ namespace Ensemble.Services
                     new GradientStopCollection
                     {
                         new GradientStop(Colors.Transparent, 0),
-                        new GradientStop(Accent, 0.25),
-                        new GradientStop(Color.FromRgb(0x9B, 0xEA, 0xFF), 0.5),
-                        new GradientStop(Accent, 0.75),
+                        new GradientStop(Accent, 0.20),
+                        new GradientStop(Color.FromRgb(0xB9, 0xE5, 0xF2), 0.5),
+                        new GradientStop(Accent, 0.80),
                         new GradientStop(Colors.Transparent, 1)
                     },
                     new Point(0, 0),

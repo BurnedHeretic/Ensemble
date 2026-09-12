@@ -3,314 +3,604 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-        Halo Wars-inspired presentation layer for Ensemble.
-
-        The 2008 Halo Wars source references:
-          HWFontHandel.swf
-          HWFontConduit360.swf
-
-        No proprietary Halo Wars font files are included here. Runtime code
-        prefers an installed Handel Gothic / Conduit family and falls back to
-        Windows fonts when they are unavailable.
+        Ensemble / Halo Wars visual language.
+        Inspired by the supplied Halo Wars DE menu screenshots:
+        - deep translucent navy panels
+        - thin blue-grey technical borders
+        - orange active/selected state
+        - bright condensed display typography
+        - subdued inactive items
     -->
 
-    <Color x:Key="HwBackgroundColor">#06111B</Color>
-    <Color x:Key="HwPanelColor">#0A1824</Color>
-    <Color x:Key="HwPanelRaisedColor">#102738</Color>
-    <Color x:Key="HwPanelHoverColor">#173B51</Color>
-    <Color x:Key="HwAccentColor">#43C8F5</Color>
-    <Color x:Key="HwAccentBrightColor">#9BEAFF</Color>
-    <Color x:Key="HwAccentMutedColor">#247B9E</Color>
-    <Color x:Key="HwLineColor">#315E73</Color>
-    <Color x:Key="HwTextColor">#EAF9FF</Color>
-    <Color x:Key="HwMutedTextColor">#8DA8B8</Color>
-    <Color x:Key="HwDangerColor">#E46B69</Color>
+    <Color x:Key="HwBackgroundColor">#071B2B</Color>
+    <Color x:Key="HwBackgroundDeepColor">#04111C</Color>
+    <Color x:Key="HwPanelColor">#0B2638</Color>
+    <Color x:Key="HwPanelRaisedColor">#17384C</Color>
+    <Color x:Key="HwPanelHoverColor">#224A60</Color>
+    <Color x:Key="HwPanelSoftColor">#19384A</Color>
 
-    <SolidColorBrush x:Key="HwBackgroundBrush" Color="{StaticResource HwBackgroundColor}"/>
-    <SolidColorBrush x:Key="HwPanelBrush" Color="{StaticResource HwPanelColor}"/>
-    <SolidColorBrush x:Key="HwPanelRaisedBrush" Color="{StaticResource HwPanelRaisedColor}"/>
-    <SolidColorBrush x:Key="HwPanelHoverBrush" Color="{StaticResource HwPanelHoverColor}"/>
-    <SolidColorBrush x:Key="HwAccentBrush" Color="{StaticResource HwAccentColor}"/>
-    <SolidColorBrush x:Key="HwAccentBrightBrush" Color="{StaticResource HwAccentBrightColor}"/>
-    <SolidColorBrush x:Key="HwAccentMutedBrush" Color="{StaticResource HwAccentMutedColor}"/>
-    <SolidColorBrush x:Key="HwLineBrush" Color="{StaticResource HwLineColor}"/>
-    <SolidColorBrush x:Key="HwTextBrush" Color="{StaticResource HwTextColor}"/>
-    <SolidColorBrush x:Key="HwMutedTextBrush" Color="{StaticResource HwMutedTextColor}"/>
-    <SolidColorBrush x:Key="HwDangerBrush" Color="{StaticResource HwDangerColor}"/>
+    <Color x:Key="HwAccentColor">#6EA8C3</Color>
+    <Color x:Key="HwAccentBrightColor">#B9E5F2</Color>
+    <Color x:Key="HwAccentMutedColor">#416A7E</Color>
 
-    <LinearGradientBrush x:Key="HwPanelGradientBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#102738" Offset="0"/>
-        <GradientStop Color="#07131E" Offset="1"/>
+    <Color x:Key="HwOrangeColor">#B65B22</Color>
+    <Color x:Key="HwOrangeBrightColor">#E47A2A</Color>
+    <Color x:Key="HwOrangeDarkColor">#6F3317</Color>
+
+    <Color x:Key="HwLineColor">#4B6D7E</Color>
+    <Color x:Key="HwTextColor">#EDF3F5</Color>
+    <Color x:Key="HwMutedTextColor">#829CAB</Color>
+    <Color x:Key="HwDisabledTextColor">#58717F</Color>
+    <Color x:Key="HwDangerColor">#E07070</Color>
+
+    <SolidColorBrush x:Key="HwBackgroundBrush"
+                     Color="{StaticResource HwBackgroundColor}"/>
+    <SolidColorBrush x:Key="HwBackgroundDeepBrush"
+                     Color="{StaticResource HwBackgroundDeepColor}"/>
+    <SolidColorBrush x:Key="HwPanelBrush"
+                     Color="{StaticResource HwPanelColor}"/>
+    <SolidColorBrush x:Key="HwPanelRaisedBrush"
+                     Color="{StaticResource HwPanelRaisedColor}"/>
+    <SolidColorBrush x:Key="HwPanelHoverBrush"
+                     Color="{StaticResource HwPanelHoverColor}"/>
+    <SolidColorBrush x:Key="HwPanelSoftBrush"
+                     Color="{StaticResource HwPanelSoftColor}"/>
+
+    <SolidColorBrush x:Key="HwAccentBrush"
+                     Color="{StaticResource HwAccentColor}"/>
+    <SolidColorBrush x:Key="HwAccentBrightBrush"
+                     Color="{StaticResource HwAccentBrightColor}"/>
+    <SolidColorBrush x:Key="HwAccentMutedBrush"
+                     Color="{StaticResource HwAccentMutedColor}"/>
+
+    <SolidColorBrush x:Key="HwOrangeBrush"
+                     Color="{StaticResource HwOrangeColor}"/>
+    <SolidColorBrush x:Key="HwOrangeBrightBrush"
+                     Color="{StaticResource HwOrangeBrightColor}"/>
+    <SolidColorBrush x:Key="HwOrangeDarkBrush"
+                     Color="{StaticResource HwOrangeDarkColor}"/>
+
+    <SolidColorBrush x:Key="HwLineBrush"
+                     Color="{StaticResource HwLineColor}"/>
+    <SolidColorBrush x:Key="HwTextBrush"
+                     Color="{StaticResource HwTextColor}"/>
+    <SolidColorBrush x:Key="HwMutedTextBrush"
+                     Color="{StaticResource HwMutedTextColor}"/>
+    <SolidColorBrush x:Key="HwDisabledTextBrush"
+                     Color="{StaticResource HwDisabledTextColor}"/>
+    <SolidColorBrush x:Key="HwDangerBrush"
+                     Color="{StaticResource HwDangerColor}"/>
+
+    <LinearGradientBrush x:Key="HwWindowGradientBrush"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#0B3550" Offset="0"/>
+        <GradientStop Color="#0A263A" Offset="0.22"/>
+        <GradientStop Color="#071B2B" Offset="0.62"/>
+        <GradientStop Color="#04111C" Offset="1"/>
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="HwPanelGradientBrush"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#1B4258" Offset="0"/>
+        <GradientStop Color="#133246" Offset="0.38"/>
+        <GradientStop Color="#0B2536" Offset="1"/>
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="HwOrangeSelectionBrush"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#B96A31" Offset="0"/>
+        <GradientStop Color="#91501F" Offset="0.48"/>
+        <GradientStop Color="#693317" Offset="1"/>
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="HwBlueSelectionBrush"
+                         StartPoint="0,0"
+                         EndPoint="0,1">
+        <GradientStop Color="#24526A" Offset="0"/>
+        <GradientStop Color="#173A4E" Offset="1"/>
     </LinearGradientBrush>
 
     <Style TargetType="{x:Type Window}">
-        <Setter Property="Background" Value="{StaticResource HwBackgroundBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Background"
+                Value="{StaticResource HwWindowGradientBrush}"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
     </Style>
 
+    <!-- =========================================================
+         MENUS
+         ========================================================= -->
+
     <Style TargetType="{x:Type Menu}">
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Background"
+                Value="#081723"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="0,0,0,1"/>
+        <Setter Property="Padding"
+                Value="4,2"/>
     </Style>
 
     <Style TargetType="{x:Type ContextMenu}">
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwAccentMutedBrush}"/>
-        <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="2"/>
-        <Setter Property="HasDropShadow" Value="True"/>
+        <Setter Property="Background"
+                Value="{StaticResource HwPanelGradientBrush}"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwAccentMutedBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Padding"
+                Value="1"/>
+        <Setter Property="HasDropShadow"
+                Value="True"/>
     </Style>
 
     <Style TargetType="{x:Type MenuItem}">
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Padding" Value="10,5"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Background"
+                Value="Transparent"/>
+        <Setter Property="Padding"
+                Value="12,5"/>
+        <Setter Property="MinHeight"
+                Value="27"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type MenuItem}">
-                    <Border x:Name="Root"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="Transparent"
-                            BorderThickness="1"
-                            SnapsToDevicePixels="True">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                    <Grid SnapsToDevicePixels="True">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="22"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="16"/>
+                                </Grid.ColumnDefinitions>
 
-                            <ContentPresenter Grid.Column="0"
-                                              ContentSource="Icon"
-                                              Margin="6,0,4,0"
-                                              VerticalAlignment="Center"/>
-
-                            <ContentPresenter Grid.Column="1"
-                                              ContentSource="Header"
-                                              RecognizesAccessKey="True"
-                                              Margin="6,3"
-                                              VerticalAlignment="Center"/>
-
-                            <TextBlock Grid.Column="2"
-                                       Text="{TemplateBinding InputGestureText}"
-                                       Foreground="{StaticResource HwMutedTextBrush}"
-                                       Margin="14,3,8,3"
-                                       VerticalAlignment="Center"/>
-
-                            <Popup x:Name="PART_Popup"
-                                   Placement="Bottom"
-                                   IsOpen="{TemplateBinding IsSubmenuOpen}"
-                                   AllowsTransparency="True"
-                                   Focusable="False"
-                                   PopupAnimation="Fade">
-                                <Border Background="{StaticResource HwPanelRaisedBrush}"
-                                        BorderBrush="{StaticResource HwAccentMutedBrush}"
+                                <Border x:Name="CheckBox"
+                                        Grid.Column="0"
+                                        Width="10"
+                                        Height="10"
+                                        Margin="5,0,5,0"
+                                        VerticalAlignment="Center"
                                         BorderThickness="1"
-                                        Padding="2">
-                                    <StackPanel IsItemsHost="True"/>
-                                </Border>
-                            </Popup>
-                        </Grid>
-                    </Border>
+                                        BorderBrush="{StaticResource HwAccentMutedBrush}"
+                                        Background="#081723"
+                                        Visibility="Collapsed"/>
+
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  Margin="3,2,10,2"
+                                                  VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Column="2"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           Foreground="{StaticResource HwMutedTextBrush}"
+                                           Margin="16,2,4,2"
+                                           VerticalAlignment="Center"/>
+
+                                <Path x:Name="Arrow"
+                                      Grid.Column="3"
+                                      Data="M 0 0 L 4 4 L 0 8 Z"
+                                      Fill="{StaticResource HwMutedTextBrush}"
+                                      Width="4"
+                                      Height="8"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Visibility="Collapsed"/>
+                            </Grid>
+                        </Border>
+
+                        <Popup x:Name="PART_Popup"
+                               Placement="Bottom"
+                               IsOpen="{TemplateBinding IsSubmenuOpen}"
+                               AllowsTransparency="True"
+                               Focusable="False"
+                               PopupAnimation="Fade">
+                            <Border Background="{StaticResource HwPanelGradientBrush}"
+                                    BorderBrush="{StaticResource HwAccentMutedBrush}"
+                                    BorderThickness="1"
+                                    Padding="1">
+                                <StackPanel IsItemsHost="True"
+                                            MinWidth="190"/>
+                            </Border>
+                        </Popup>
+                    </Grid>
 
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsHighlighted" Value="True">
-                            <Setter TargetName="Root" Property="Background" Value="{StaticResource HwPanelHoverBrush}"/>
-                            <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource HwAccentBrush}"/>
+                        <Trigger Property="Role"
+                                 Value="TopLevelHeader">
+                            <Setter TargetName="PART_Popup"
+                                    Property="Placement"
+                                    Value="Bottom"/>
+                            <Setter TargetName="Root"
+                                    Property="BorderThickness"
+                                    Value="0,0,0,2"/>
                         </Trigger>
 
-                        <Trigger Property="IsSubmenuOpen" Value="True">
-                            <Setter TargetName="Root" Property="Background" Value="{StaticResource HwPanelHoverBrush}"/>
-                            <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource HwAccentBrush}"/>
+                        <Trigger Property="Role"
+                                 Value="SubmenuHeader">
+                            <Setter TargetName="PART_Popup"
+                                    Property="Placement"
+                                    Value="Right"/>
+                            <Setter TargetName="Arrow"
+                                    Property="Visibility"
+                                    Value="Visible"/>
                         </Trigger>
 
-                        <Trigger Property="Role" Value="TopLevelHeader">
-                            <Setter TargetName="PART_Popup" Property="Placement" Value="Bottom"/>
+                        <Trigger Property="IsCheckable"
+                                 Value="True">
+                            <Setter TargetName="CheckBox"
+                                    Property="Visibility"
+                                    Value="Visible"/>
                         </Trigger>
 
-                        <Trigger Property="Role" Value="SubmenuHeader">
-                            <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/>
+                        <Trigger Property="IsChecked"
+                                 Value="True">
+                            <Setter TargetName="CheckBox"
+                                    Property="Background"
+                                    Value="{StaticResource HwOrangeBrush}"/>
+                            <Setter TargetName="CheckBox"
+                                    Property="BorderBrush"
+                                    Value="{StaticResource HwOrangeBrightBrush}"/>
                         </Trigger>
 
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Opacity" Value="0.45"/>
+                        <Trigger Property="IsHighlighted"
+                                 Value="True">
+                            <Setter TargetName="Root"
+                                    Property="Background"
+                                    Value="{StaticResource HwOrangeSelectionBrush}"/>
+                            <Setter TargetName="Root"
+                                    Property="BorderBrush"
+                                    Value="{StaticResource HwOrangeBrightBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="White"/>
+                        </Trigger>
+
+                        <Trigger Property="IsSubmenuOpen"
+                                 Value="True">
+                            <Setter TargetName="Root"
+                                    Property="Background"
+                                    Value="{StaticResource HwBlueSelectionBrush}"/>
+                            <Setter TargetName="Root"
+                                    Property="BorderBrush"
+                                    Value="{StaticResource HwAccentBrush}"/>
+                        </Trigger>
+
+                        <Trigger Property="IsEnabled"
+                                 Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource HwDisabledTextBrush}"/>
+                            <Setter Property="Opacity"
+                                    Value="0.58"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
-    </Style>
-
-    <Style TargetType="{x:Type StatusBar}">
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwAccentMutedBrush}"/>
-        <Setter Property="BorderThickness" Value="0,1,0,0"/>
-    </Style>
-
-    <Style TargetType="{x:Type Button}">
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwAccentMutedBrush}"/>
-        <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="12,6"/>
-        <Setter Property="Cursor" Value="Hand"/>
-        <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{StaticResource HwPanelHoverBrush}"/>
-                <Setter Property="BorderBrush" Value="{StaticResource HwAccentBrightBrush}"/>
-                <Setter Property="Foreground" Value="{StaticResource HwAccentBrightBrush}"/>
-            </Trigger>
-            <Trigger Property="IsPressed" Value="True">
-                <Setter Property="Background" Value="{StaticResource HwAccentMutedBrush}"/>
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-                <Setter Property="Opacity" Value="0.45"/>
-            </Trigger>
-        </Style.Triggers>
-    </Style>
-
-    <Style TargetType="{x:Type TextBox}">
-        <Setter Property="Background" Value="#051019"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-        <Setter Property="SelectionBrush" Value="{StaticResource HwAccentMutedBrush}"/>
-        <Setter Property="CaretBrush" Value="{StaticResource HwAccentBrightBrush}"/>
-        <Setter Property="Padding" Value="5,3"/>
-    </Style>
-
-    <Style TargetType="{x:Type ComboBox}">
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-        <Setter Property="Padding" Value="4,2"/>
-    </Style>
-
-    <Style TargetType="{x:Type CheckBox}">
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-    </Style>
-
-    <Style TargetType="{x:Type TreeView}">
-        <Setter Property="Background" Value="{StaticResource HwPanelBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-    </Style>
-
-    <Style TargetType="{x:Type TreeViewItem}">
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="Padding" Value="2,3"/>
-    </Style>
-
-    <Style TargetType="{x:Type ListBox}">
-        <Setter Property="Background" Value="{StaticResource HwPanelBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-    </Style>
-
-    <Style TargetType="{x:Type ListBoxItem}">
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="Padding" Value="0"/>
-        <Setter Property="Margin" Value="0"/>
-        <Style.Triggers>
-            <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{StaticResource HwAccentMutedBrush}"/>
-                <Setter Property="Foreground" Value="White"/>
-            </Trigger>
-            <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{StaticResource HwPanelHoverBrush}"/>
-            </Trigger>
-        </Style.Triggers>
-    </Style>
-
-    <Style x:Key="ObjectTileItemStyle" TargetType="{x:Type ListBoxItem}">
-        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-        <Setter Property="VerticalContentAlignment" Value="Stretch"/>
-        <Setter Property="Padding" Value="0"/>
-        <Setter Property="Margin" Value="0"/>
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="{x:Type ListBoxItem}">
-                    <Border x:Name="TileBorder"
-                            Margin="6"
-                            CornerRadius="3"
-                            BorderThickness="1"
-                            BorderBrush="{StaticResource HwLineBrush}"
-                            Background="{StaticResource HwPanelBrush}">
-                        <ContentPresenter/>
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="TileBorder" Property="Background" Value="{StaticResource HwPanelHoverBrush}"/>
-                            <Setter TargetName="TileBorder" Property="BorderBrush" Value="{StaticResource HwAccentBrush}"/>
-                        </Trigger>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="TileBorder" Property="Background" Value="{StaticResource HwPanelHoverBrush}"/>
-                            <Setter TargetName="TileBorder" Property="BorderBrush" Value="{StaticResource HwAccentBrightBrush}"/>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <Style TargetType="{x:Type DataGrid}">
-        <Setter Property="Background" Value="{StaticResource HwPanelBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-        <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-        <Setter Property="HorizontalGridLinesBrush" Value="#173B51"/>
-        <Setter Property="HeadersVisibility" Value="Column"/>
-        <Setter Property="RowBackground" Value="{StaticResource HwPanelBrush}"/>
-        <Setter Property="AlternatingRowBackground" Value="#0D202E"/>
-        <Setter Property="AlternationCount" Value="2"/>
-    </Style>
-
-    <Style TargetType="{x:Type DataGridColumnHeader}">
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwAccentBrightBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-        <Setter Property="Padding" Value="7,5"/>
-    </Style>
-
-    <Style TargetType="{x:Type DataGridRow}">
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Style.Triggers>
-            <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{StaticResource HwAccentMutedBrush}"/>
-                <Setter Property="Foreground" Value="White"/>
-            </Trigger>
-        </Style.Triggers>
-    </Style>
-
-    <Style TargetType="{x:Type GroupBox}">
-        <Setter Property="Foreground" Value="{StaticResource HwAccentBrightBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwLineBrush}"/>
-        <Setter Property="Margin" Value="0,0,0,10"/>
-        <Setter Property="Padding" Value="8"/>
     </Style>
 
     <Style TargetType="{x:Type Separator}">
-        <Setter Property="Background" Value="{StaticResource HwLineBrush}"/>
-        <Setter Property="Opacity" Value="0.75"/>
+        <Setter Property="Margin"
+                Value="6,3"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Separator}">
+                    <Border Height="1"
+                            Background="{StaticResource HwLineBrush}"
+                            Opacity="0.65"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- =========================================================
+         BUTTONS / TABS
+         ========================================================= -->
+
+    <Style TargetType="{x:Type Button}">
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Background"
+                Value="{StaticResource HwBlueSelectionBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwAccentMutedBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Padding"
+                Value="14,7"/>
+        <Setter Property="Cursor"
+                Value="Hand"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Button}">
+                    <Border x:Name="Root"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <Grid>
+                            <Border Height="1"
+                                    VerticalAlignment="Top"
+                                    Background="#74AFCB"
+                                    Opacity="0.48"/>
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver"
+                                 Value="True">
+                            <Setter TargetName="Root"
+                                    Property="Background"
+                                    Value="{StaticResource HwOrangeSelectionBrush}"/>
+                            <Setter TargetName="Root"
+                                    Property="BorderBrush"
+                                    Value="{StaticResource HwOrangeBrightBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed"
+                                 Value="True">
+                            <Setter TargetName="Root"
+                                    Property="Background"
+                                    Value="{StaticResource HwOrangeDarkBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled"
+                                 Value="False">
+                            <Setter Property="Opacity"
+                                    Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="{x:Type TabControl}">
+        <Setter Property="Background"
+                Value="Transparent"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+    </Style>
+
+    <Style TargetType="{x:Type TabItem}">
+        <Setter Property="Foreground"
+                Value="{StaticResource HwMutedTextBrush}"/>
+        <Setter Property="Background"
+                Value="#153448"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwAccentMutedBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Padding"
+                Value="18,7"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type TabItem}">
+                    <Border x:Name="TabBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            Margin="1,0">
+                        <ContentPresenter HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          ContentSource="Header"
+                                          Margin="{TemplateBinding Padding}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected"
+                                 Value="True">
+                            <Setter TargetName="TabBorder"
+                                    Property="Background"
+                                    Value="{StaticResource HwOrangeSelectionBrush}"/>
+                            <Setter TargetName="TabBorder"
+                                    Property="BorderBrush"
+                                    Value="{StaticResource HwOrangeBrightBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="White"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver"
+                                 Value="True">
+                            <Setter TargetName="TabBorder"
+                                    Property="BorderBrush"
+                                    Value="{StaticResource HwAccentBrightBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- =========================================================
+         INPUTS
+         ========================================================= -->
+
+    <Style TargetType="{x:Type TextBox}">
+        <Setter Property="Background"
+                Value="#071925"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Padding"
+                Value="7,4"/>
+        <Setter Property="SelectionBrush"
+                Value="{StaticResource HwOrangeBrush}"/>
+        <Setter Property="CaretBrush"
+                Value="{StaticResource HwAccentBrightBrush}"/>
+    </Style>
+
+    <Style TargetType="{x:Type ComboBox}">
+        <Setter Property="Background"
+                Value="#102E40"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="Padding"
+                Value="7,4"/>
+    </Style>
+
+    <Style TargetType="{x:Type CheckBox}">
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Margin"
+                Value="2"/>
+    </Style>
+
+    <!-- =========================================================
+         LISTS / TREES / DATA
+         ========================================================= -->
+
+    <Style TargetType="{x:Type TreeView}">
+        <Setter Property="Background"
+                Value="#071620"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+    </Style>
+
+    <Style TargetType="{x:Type TreeViewItem}">
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Padding"
+                Value="3,2"/>
+        <Setter Property="Margin"
+                Value="0,1"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected"
+                     Value="True">
+                <Setter Property="Background"
+                        Value="{StaticResource HwOrangeSelectionBrush}"/>
+                <Setter Property="Foreground"
+                        Value="White"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver"
+                     Value="True">
+                <Setter Property="Background"
+                        Value="#244B5D"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="{x:Type ListBox}">
+        <Setter Property="Background"
+                Value="#071620"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+    </Style>
+
+    <Style TargetType="{x:Type ListBoxItem}">
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="Padding"
+                Value="5"/>
+        <Style.Triggers>
+            <Trigger Property="IsSelected"
+                     Value="True">
+                <Setter Property="Background"
+                        Value="{StaticResource HwOrangeSelectionBrush}"/>
+                <Setter Property="Foreground"
+                        Value="White"/>
+            </Trigger>
+            <Trigger Property="IsMouseOver"
+                     Value="True">
+                <Setter Property="Background"
+                        Value="{StaticResource HwPanelHoverBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="{x:Type DataGrid}">
+        <Setter Property="Background"
+                Value="#071620"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="GridLinesVisibility"
+                Value="Horizontal"/>
+        <Setter Property="HorizontalGridLinesBrush"
+                Value="#315568"/>
+        <Setter Property="RowBackground"
+                Value="#0A2231"/>
+        <Setter Property="AlternatingRowBackground"
+                Value="#0D2939"/>
+    </Style>
+
+    <Style TargetType="{x:Type DataGridRow}">
+        <Style.Triggers>
+            <Trigger Property="IsSelected"
+                     Value="True">
+                <Setter Property="Background"
+                        Value="{StaticResource HwOrangeSelectionBrush}"/>
+                <Setter Property="Foreground"
+                        Value="White"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- =========================================================
+         PANELS / STATUS
+         ========================================================= -->
+
+    <Style TargetType="{x:Type GroupBox}">
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="Background"
+                Value="#0B2638"/>
+        <Setter Property="Padding"
+                Value="8"/>
+        <Setter Property="Margin"
+                Value="3"/>
+    </Style>
+
+    <Style TargetType="{x:Type StatusBar}">
+        <Setter Property="Background"
+                Value="#0A2231"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="0,1,0,0"/>
+        <Setter Property="Padding"
+                Value="6,2"/>
     </Style>
 
     <Style TargetType="{x:Type GridSplitter}">
-        <Setter Property="Background" Value="{StaticResource HwLineBrush}"/>
+        <Setter Property="Background"
+                Value="{StaticResource HwLineBrush}"/>
     </Style>
 
     <Style TargetType="{x:Type ToolTip}">
-        <Setter Property="Background" Value="{StaticResource HwPanelRaisedBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource HwTextBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource HwAccentMutedBrush}"/>
-        <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="7,5"/>
-    </Style>
-
-    <Style x:Key="HwPanelHeaderTextStyle" TargetType="{x:Type TextBlock}">
-        <Setter Property="Foreground" Value="{StaticResource HwAccentBrightBrush}"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Background"
+                Value="#102E40"/>
+        <Setter Property="Foreground"
+                Value="{StaticResource HwTextBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{StaticResource HwAccentMutedBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Padding"
+                Value="7,4"/>
     </Style>
 
 </ResourceDictionary>
