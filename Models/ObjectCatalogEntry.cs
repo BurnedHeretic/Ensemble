@@ -1,4 +1,7 @@
-﻿using System.Numerics;
+﻿using System.ComponentModel;
+using System.IO;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Windows.Media;
 
 namespace Ensemble.Models
@@ -10,8 +13,16 @@ namespace Ensemble.Models
         ImportedMesh
     }
 
-    internal sealed class ObjectCatalogEntry
+    internal sealed class ObjectCatalogEntry :
+        INotifyPropertyChanged
     {
+        private ImageSource?
+            _previewImage;
+
+        private string
+            _previewKind =
+                string.Empty;
+
         public ObjectCatalogLayer Layer
         {
             get;
@@ -38,7 +49,21 @@ namespace Ensemble.Models
             init;
         }
 
+        /// <summary>
+        /// Friendly player-facing name used by the browser.
+        /// </summary>
         public string Name
+        {
+            get;
+            init;
+        } =
+            string.Empty;
+
+        /// <summary>
+        /// Original editor / art-object name from the XMB. Kept separate so
+        /// imports and UGX resolution never lose the exact source identifier.
+        /// </summary>
+        public string InternalName
         {
             get;
             init;
@@ -85,8 +110,50 @@ namespace Ensemble.Models
 
         public ImageSource? PreviewImage
         {
-            get;
-            set;
+            get =>
+                _previewImage;
+
+            set
+            {
+                if (ReferenceEquals(
+                        _previewImage,
+                        value))
+                {
+                    return;
+                }
+
+                _previewImage =
+                    value;
+
+                OnPropertyChanged();
+            }
+        }
+
+        public string PreviewKind
+        {
+            get =>
+                _previewKind;
+
+            set
+            {
+                string safeValue =
+                    value
+                    ??
+                    string.Empty;
+
+                if (string.Equals(
+                        _previewKind,
+                        safeValue,
+                        StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _previewKind =
+                    safeValue;
+
+                OnPropertyChanged();
+            }
         }
 
         public bool CanPlace =>
@@ -114,23 +181,68 @@ namespace Ensemble.Models
                   $"{Position.Y:0.##}, " +
                   $"{Position.Z:0.##}";
 
+        public string InternalNameText =>
+            string.IsNullOrWhiteSpace(
+                InternalName)
+                ? Type
+                : InternalName;
+
+        public string SourceEraName =>
+            string.IsNullOrWhiteSpace(
+                DonorEraPath)
+                ? "LOCAL LIBRARY"
+                : Path.GetFileName(
+                    DonorEraPath);
+
+        public string SourceDisplayText =>
+            string.IsNullOrWhiteSpace(
+                DonorEraPath)
+                ? SourceFileName
+                : SourceEraName +
+                  "  //  " +
+                  SourceFileName;
+
         public string SearchText =>
             (
                 LayerName +
                 " " +
                 Name +
                 " " +
+                InternalName +
+                " " +
                 Type +
                 " " +
                 Id +
                 " " +
-                SourceFileName
+                SourceFileName +
+                " " +
+                SourceEraName
             )
             .ToLowerInvariant();
+
+        public event PropertyChangedEventHandler?
+            PropertyChanged;
+
+        private void OnPropertyChanged(
+            [CallerMemberName]
+            string? propertyName =
+                null)
+        {
+            PropertyChanged?.Invoke(
+                this,
+                new PropertyChangedEventArgs(
+                    propertyName));
+        }
     }
 
     internal sealed class ObjectCatalogLoadResult
     {
+        public EraArchiveInfo? Archive
+        {
+            get;
+            init;
+        }
+
         public List<ObjectCatalogEntry> Entries
         {
             get;

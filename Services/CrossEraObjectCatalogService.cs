@@ -5,7 +5,9 @@ namespace Ensemble.Services
     internal static class CrossEraObjectCatalogService
     {
         public static ObjectCatalogLoadResult Load(
-            string eraPath)
+            string eraPath,
+            bool includeImportedMeshes =
+                true)
         {
             if (string.IsNullOrWhiteSpace(
                     eraPath))
@@ -20,7 +22,11 @@ namespace Ensemble.Services
                     eraPath);
 
             ObjectCatalogLoadResult result =
-                new ObjectCatalogLoadResult();
+                new ObjectCatalogLoadResult
+                {
+                    Archive =
+                        archive
+                };
 
             foreach (EraChunkInfo chunk
                      in archive.Chunks)
@@ -91,10 +97,14 @@ namespace Ensemble.Services
                                         obj.Id,
 
                                     Name =
-                                        string.IsNullOrWhiteSpace(
-                                            obj.EditorName)
-                                            ? obj.Type
-                                            : obj.EditorName,
+                                        ObjectDisplayNameService
+                                            .GetFriendlyName(
+                                                ObjectCatalogLayer.Scenario,
+                                                obj.EditorName,
+                                                obj.Type),
+
+                                    InternalName =
+                                        obj.EditorName,
 
                                     Type =
                                         obj.Type,
@@ -108,13 +118,6 @@ namespace Ensemble.Services
                                     ScenarioObject =
                                         obj
                                 };
-
-                            entry.PreviewImage =
-                                ObjectPreviewService
-                                    .Create(
-                                        entry.Layer,
-                                        entry.Name,
-                                        entry.Type);
 
                             result.Entries.Add(
                                 entry);
@@ -145,6 +148,13 @@ namespace Ensemble.Services
                                         obj.Id,
 
                                     Name =
+                                        ObjectDisplayNameService
+                                            .GetFriendlyName(
+                                                ObjectCatalogLayer.ArtObject,
+                                                obj.DisplayName,
+                                                obj.Type),
+
+                                    InternalName =
                                         obj.DisplayName,
 
                                     Type =
@@ -160,13 +170,6 @@ namespace Ensemble.Services
                                         obj
                                 };
 
-                            entry.PreviewImage =
-                                ObjectPreviewService
-                                    .Create(
-                                        entry.Layer,
-                                        entry.Name,
-                                        entry.Type);
-
                             result.Entries.Add(
                                 entry);
                         }
@@ -179,50 +182,11 @@ namespace Ensemble.Services
                 }
             }
 
-            foreach (ImportedMeshEntry mesh
-                     in CustomMeshImportService
-                         .LoadAll())
+            if (includeImportedMeshes)
             {
-                ObjectCatalogEntry entry =
-                    new ObjectCatalogEntry
-                    {
-                        Layer =
-                            ObjectCatalogLayer
-                                .ImportedMesh,
-
-                        DonorEraPath =
-                            string.Empty,
-
-                        SourceFileName =
-                            mesh.FileName,
-
-                        Id =
-                            0,
-
-                        Name =
-                            mesh.DisplayName,
-
-                        Type =
-                            mesh.Extension
-                                .TrimStart('.')
-                                .ToUpperInvariant() +
-                            " mesh",
-
-                        ImportedMesh =
-                            mesh
-                    };
-
-                entry.PreviewImage =
-                    ObjectPreviewService
-                        .Create(
-                            entry.Layer,
-                            entry.Name,
-                            entry.Type);
-
-                result.Entries.Add(
-                    entry);
+                result.Entries.AddRange(
+                    LoadImportedMeshEntries());
             }
-
 
             result.Entries.Sort(
                 (
@@ -252,9 +216,60 @@ namespace Ensemble.Services
                     }
 
                     return
-                        a.Id.CompareTo(
-                            b.Id);
+                        string.Compare(
+                            a.Type,
+                            b.Type,
+                            StringComparison.OrdinalIgnoreCase);
                 });
+
+            return result;
+        }
+
+        public static List<ObjectCatalogEntry> LoadImportedMeshEntries()
+        {
+            List<ObjectCatalogEntry> result =
+                new();
+
+            foreach (ImportedMeshEntry mesh
+                     in CustomMeshImportService
+                         .LoadAll())
+            {
+                result.Add(
+                    new ObjectCatalogEntry
+                    {
+                        Layer =
+                            ObjectCatalogLayer
+                                .ImportedMesh,
+
+                        DonorEraPath =
+                            string.Empty,
+
+                        SourceFileName =
+                            mesh.FileName,
+
+                        Id =
+                            0,
+
+                        Name =
+                            ObjectDisplayNameService
+                                .GetFriendlyName(
+                                    ObjectCatalogLayer.ImportedMesh,
+                                    mesh.DisplayName,
+                                    mesh.Extension),
+
+                        InternalName =
+                            mesh.DisplayName,
+
+                        Type =
+                            mesh.Extension
+                                .TrimStart('.')
+                                .ToUpperInvariant() +
+                            " mesh",
+
+                        ImportedMesh =
+                            mesh
+                    });
+            }
 
             return result;
         }

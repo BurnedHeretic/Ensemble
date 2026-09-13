@@ -24,22 +24,47 @@
                 BorderBrush="{StaticResource HwLineBrush}"
                 BorderThickness="0,0,0,1"
                 Padding="14,12">
-            <DockPanel>
-                <TextBlock DockPanel.Dock="Left"
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
                            Text="OBJECT BROWSER // ADD OR IMPORT"
-                           Style="{StaticResource HwPanelHeaderTextStyle}"
+                           Foreground="{StaticResource HwAccentBrightBrush}"
+                           FontSize="15"
+                           FontWeight="SemiBold"
                            VerticalAlignment="Center"/>
 
-                <Button DockPanel.Dock="Right"
-                        Content="CHANGE SOURCE ERA..."
-                        Width="165"
-                        Click="BrowseEra_Click"/>
-
                 <TextBox x:Name="DonorPathText"
+                         Grid.Column="1"
                          IsReadOnly="True"
                          Margin="16,0,12,0"
-                         VerticalContentAlignment="Center"/>
-            </DockPanel>
+                         MinWidth="220"
+                         HorizontalAlignment="Stretch"
+                         VerticalContentAlignment="Center"
+                         ToolTip="Detected Halo Wars game directory. All .era files below this folder are scanned automatically."/>
+
+                <Button x:Name="AddEraButton"
+                        Grid.Column="2"
+                        Content="ADD EXTERNAL ERA..."
+                        Width="165"
+                        MinWidth="165"
+                        Margin="0,0,8,0"
+                        HorizontalAlignment="Right"
+                        Click="BrowseEra_Click"/>
+
+                <Button x:Name="RescanButton"
+                        Grid.Column="3"
+                        Content="RESCAN"
+                        Width="95"
+                        MinWidth="95"
+                        HorizontalAlignment="Right"
+                        Click="RescanGame_Click"/>
+            </Grid>
         </Border>
 
         <Border Grid.Row="2"
@@ -52,7 +77,9 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="190"/>
+                    <ColumnDefinition Width="170"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="155"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
@@ -83,8 +110,22 @@
                     <ComboBoxItem Content="Imported meshes"/>
                 </ComboBox>
 
+                <TextBlock Grid.Column="4"
+                           Text="PREVIEW"
+                           Foreground="{StaticResource HwMutedTextBrush}"
+                           VerticalAlignment="Center"
+                           Margin="16,0,8,0"/>
+
+                <ComboBox x:Name="PreviewModeCombo"
+                          Grid.Column="5"
+                          Height="28"
+                          SelectionChanged="PreviewModeCombo_SelectionChanged">
+                    <ComboBoxItem Content="3D preferred" IsSelected="True"/>
+                    <ComboBoxItem Content="2D schematic"/>
+                </ComboBox>
+
                 <TextBlock x:Name="CountText"
-                           Grid.Column="4"
+                           Grid.Column="6"
                            Foreground="{StaticResource HwAccentBrightBrush}"
                            Margin="16,0,0,0"
                            VerticalAlignment="Center"/>
@@ -118,6 +159,8 @@
 
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="{x:Type ListBoxItem}">
+                            <EventSetter Event="Loaded"
+                                         Handler="ObjectListItem_Loaded"/>
                             <Setter Property="HorizontalContentAlignment"
                                     Value="Stretch"/>
                             <Setter Property="Padding"
@@ -166,7 +209,7 @@
 
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid MinHeight="112">
+                            <Grid MinHeight="120">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
@@ -181,14 +224,30 @@
                                         Background="#050D14"
                                         BorderBrush="{StaticResource HwAccentMutedBrush}"
                                         BorderThickness="1">
-                                    <Image Source="{Binding PreviewImage}"
-                                           Stretch="None"
-                                           SnapsToDevicePixels="True"/>
+                                    <Grid>
+                                        <Image Source="{Binding PreviewImage}"
+                                               Stretch="Uniform"
+                                               SnapsToDevicePixels="True"/>
+
+                                        <Border HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                Margin="4"
+                                                Padding="5,2"
+                                                Background="#C004111C"
+                                                BorderBrush="{StaticResource HwAccentMutedBrush}"
+                                                BorderThickness="1">
+                                            <TextBlock Text="{Binding PreviewKind}"
+                                                       Foreground="{StaticResource HwAccentBrightBrush}"
+                                                       FontSize="9"
+                                                       FontWeight="SemiBold"/>
+                                        </Border>
+                                    </Grid>
                                 </Border>
 
                                 <Grid Grid.Column="1"
                                       Margin="12,0,12,0">
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
@@ -198,7 +257,6 @@
                                     <DockPanel Grid.Row="0">
                                         <Border DockPanel.Dock="Left"
                                                 Background="{StaticResource HwAccentMutedBrush}"
-                                                CornerRadius="2"
                                                 Padding="6,2"
                                                 Margin="0,0,8,0">
                                             <TextBlock Text="{Binding LayerName}"
@@ -214,19 +272,27 @@
                                     </DockPanel>
 
                                     <TextBlock Grid.Row="1"
+                                               Text="{Binding InternalNameText}"
+                                               Foreground="{StaticResource HwMutedTextBrush}"
+                                               FontFamily="Consolas"
+                                               FontSize="10"
+                                               TextWrapping="Wrap"
+                                               Margin="0,5,0,0"/>
+
+                                    <TextBlock Grid.Row="2"
                                                Text="{Binding Type}"
                                                Foreground="{StaticResource HwMutedTextBrush}"
                                                TextWrapping="Wrap"
-                                               Margin="0,7,0,2"/>
+                                               Margin="0,4,0,2"/>
 
-                                    <TextBlock Grid.Row="2"
-                                               Text="{Binding SourceFileName}"
+                                    <TextBlock Grid.Row="3"
+                                               Text="{Binding SourceDisplayText}"
                                                Foreground="{StaticResource HwAccentBrightBrush}"
                                                FontSize="11"
                                                TextWrapping="Wrap"
-                                               Margin="0,4,0,0"/>
+                                               Margin="0,3,0,0"/>
 
-                                    <TextBlock Grid.Row="3"
+                                    <TextBlock Grid.Row="4"
                                                Text="{Binding PositionText}"
                                                Foreground="{StaticResource HwMutedTextBrush}"
                                                FontFamily="Consolas"
@@ -259,69 +325,87 @@
                     BorderBrush="{StaticResource HwLineBrush}"
                     BorderThickness="1,0,0,0"
                     Padding="14">
-                <StackPanel>
-                    <TextBlock Text="SELECTED OBJECT"
-                               Style="{StaticResource HwPanelHeaderTextStyle}"
-                               Margin="0,0,0,14"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="SELECTED OBJECT"
+                                   Foreground="{StaticResource HwAccentBrightBrush}"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,14"/>
 
-                    <TextBlock Text="Name"
-                               Foreground="{StaticResource HwMutedTextBrush}"/>
-                    <TextBlock x:Name="SelectedNameText"
-                               Text="-"
-                               FontWeight="SemiBold"
-                               TextWrapping="Wrap"
-                               Margin="0,2,0,12"/>
+                        <TextBlock Text="In-game name"
+                                   Foreground="{StaticResource HwMutedTextBrush}"/>
+                        <TextBlock x:Name="SelectedNameText"
+                                   Text="-"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,12"/>
 
-                    <TextBlock Text="Layer"
-                               Foreground="{StaticResource HwMutedTextBrush}"/>
-                    <TextBlock x:Name="SelectedLayerText"
-                               Text="-"
-                               Margin="0,2,0,12"/>
+                        <TextBlock Text="Internal name"
+                                   Foreground="{StaticResource HwMutedTextBrush}"/>
+                        <TextBlock x:Name="SelectedInternalNameText"
+                                   Text="-"
+                                   FontFamily="Consolas"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,12"/>
 
-                    <TextBlock Text="Type"
-                               Foreground="{StaticResource HwMutedTextBrush}"/>
-                    <TextBlock x:Name="SelectedTypeText"
-                               Text="-"
-                               TextWrapping="Wrap"
-                               Margin="0,2,0,12"/>
+                        <TextBlock Text="Layer"
+                                   Foreground="{StaticResource HwMutedTextBrush}"/>
+                        <TextBlock x:Name="SelectedLayerText"
+                                   Text="-"
+                                   Margin="0,2,0,12"/>
 
-                    <TextBlock Text="Position"
-                               Foreground="{StaticResource HwMutedTextBrush}"/>
-                    <TextBlock x:Name="SelectedPositionText"
-                               Text="-"
-                               FontFamily="Consolas"
-                               Margin="0,2,0,12"/>
+                        <TextBlock Text="Type"
+                                   Foreground="{StaticResource HwMutedTextBrush}"/>
+                        <TextBlock x:Name="SelectedTypeText"
+                                   Text="-"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,12"/>
 
-                    <TextBlock Text="Source file"
-                               Foreground="{StaticResource HwMutedTextBrush}"/>
-                    <TextBlock x:Name="SelectedSourceText"
-                               Text="-"
-                               TextWrapping="Wrap"
-                               Margin="0,2,0,16"/>
+                        <TextBlock Text="Position"
+                                   Foreground="{StaticResource HwMutedTextBrush}"/>
+                        <TextBlock x:Name="SelectedPositionText"
+                                   Text="-"
+                                   FontFamily="Consolas"
+                                   Margin="0,2,0,12"/>
 
-                    <Separator/>
+                        <TextBlock Text="Source ERA / XMB"
+                                   Foreground="{StaticResource HwMutedTextBrush}"/>
+                        <TextBlock x:Name="SelectedSourceText"
+                                   Text="-"
+                                   TextWrapping="Wrap"
+                                   Margin="0,2,0,16"/>
 
-                    <CheckBox x:Name="PreservePositionCheck"
-                              Content="Preserve source-map position"
-                              Margin="0,12,0,4"/>
+                        <Separator/>
 
-                    <TextBlock Text="When disabled, Ensemble places the object at the centre of the current map so it can be moved immediately."
-                               Foreground="{StaticResource HwMutedTextBrush}"
-                               TextWrapping="Wrap"
-                               FontSize="11"
-                               Margin="20,0,0,12"/>
+                        <CheckBox x:Name="PreservePositionCheck"
+                                  Content="Preserve source-map position"
+                                  Margin="0,12,0,4"/>
 
-                    <TextBlock Text="The browser starts on the currently loaded map, so Add Object and cross-map import are now one workflow. Use Change Source ERA only when you want an object from another map."
-                               Foreground="{StaticResource HwMutedTextBrush}"
-                               TextWrapping="Wrap"
-                               FontSize="11"
-                               Margin="0,0,0,12"/>
+                        <TextBlock Text="When disabled, Ensemble places the object at the centre of the current map so it can be moved immediately."
+                                   Foreground="{StaticResource HwMutedTextBrush}"
+                                   TextWrapping="Wrap"
+                                   FontSize="11"
+                                   Margin="20,0,0,12"/>
 
-                    <TextBlock Text="Custom meshes appear in this browser after Objects > Import Custom Mesh. Raw artist meshes are staged locally; Halo Wars UGX conversion and archive dependency injection are the next backend step before those entries can be placed in-game."
-                               Foreground="{StaticResource HwMutedTextBrush}"
-                               TextWrapping="Wrap"
-                               FontSize="11"/>
-                </StackPanel>
+                        <TextBlock Text="3D preferred uses the native Halo Wars UGX model when Ensemble can resolve it. Objects without a supported mesh automatically fall back to the 2D schematic preview."
+                                   Foreground="{StaticResource HwMutedTextBrush}"
+                                   TextWrapping="Wrap"
+                                   FontSize="11"
+                                   Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Ensemble automatically scans every .era in the detected Halo Wars game directory and collapses repeated map placements into one reusable object template. Use Add External ERA only for custom maps stored outside the game installation."
+                                   Foreground="{StaticResource HwMutedTextBrush}"
+                                   TextWrapping="Wrap"
+                                   FontSize="11"
+                                   Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Custom meshes appear in this browser after Objects > Import Custom Mesh. Raw artist meshes are staged locally; Halo Wars UGX conversion and archive dependency injection are still required before those entries can be placed in-game."
+                                   Foreground="{StaticResource HwMutedTextBrush}"
+                                   TextWrapping="Wrap"
+                                   FontSize="11"/>
+                    </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
 
