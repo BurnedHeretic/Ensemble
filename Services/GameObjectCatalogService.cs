@@ -120,6 +120,28 @@ namespace Ensemble.Services
                 }
             }
 
+            // Microsoft Store / Xbox app builds keep ModManifest-compatible
+            // content in the package LocalState sandbox. Include ERAs placed
+            // there as part of the global object library as well, so Store
+            // users can browse installed mods/custom map assets without
+            // manually changing the source ERA.
+            string storeLocalState =
+                HaloWarsAssetArchiveService
+                    .WindowsStoreLocalStateDirectory;
+
+            if (Directory.Exists(
+                    storeLocalState))
+            {
+                foreach (string path
+                         in EnumerateEraFilesSafe(
+                             storeLocalState))
+                {
+                    eraPaths.Add(
+                        Path.GetFullPath(
+                            path));
+                }
+            }
+
             List<string> orderedPaths =
                 eraPaths
                     .OrderBy(

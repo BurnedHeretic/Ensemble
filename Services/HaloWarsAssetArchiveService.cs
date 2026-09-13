@@ -5,14 +5,18 @@ using System.Text.RegularExpressions;
 namespace Ensemble.Services
 {
     /// <summary>
-    /// Provides the 3D viewport with Halo Wars' shared/global asset ERAs.
-    ///
-    /// Scenario ERAs only contain assets needed specifically by that map.
-    /// Many gameplay objects resolve their visual mesh from root.era,
-    /// root_update.era, scenarioshared.era or DLC archives instead.
+    /// Provides the 3D viewport and object browser with Halo Wars' shared/global
+    /// ERA archives. Supports Steam, Xbox app installs and the legacy Microsoft
+    /// Store/UWP package used by Halo Wars: Definitive Edition.
     /// </summary>
     internal static class HaloWarsAssetArchiveService
     {
+        private const string StorePackageFamily =
+            "Microsoft.BulldogThreshold_8wekyb3d8bbwe";
+
+        private const string StorePackagePrefix =
+            "Microsoft.BulldogThreshold_";
+
         private static readonly object Sync =
             new();
 
@@ -37,6 +41,41 @@ namespace Ensemble.Services
                 {
                     return _gameDirectory;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Halo Wars' sandbox/mod folder for the Microsoft Store version.
+        /// ModManifest.txt and Store-compatible mod folders live here.
+        /// </summary>
+        public static string WindowsStoreLocalStateDirectory =>
+            Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "Packages",
+                StorePackageFamily,
+                "LocalState");
+
+        /// <summary>
+        /// Steam's normal ModManifest location. Exposed alongside the Store
+        /// LocalState path so future install/export workflows do not need to
+        /// hard-code either distribution.
+        /// </summary>
+        public static string SteamLocalStateDirectory =>
+            Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                "Halo Wars");
+
+        public static string DistributionName
+        {
+            get
+            {
+                string? directory =
+                    GameDirectory;
+
+                return ClassifyDistribution(
+                    directory);
             }
         }
 
@@ -132,13 +171,14 @@ namespace Ensemble.Services
             string? gameDirectory =
                 FindGameDirectoryNear(
                     directory,
-                    3);
+                    4);
 
             if (gameDirectory ==
                 null)
             {
-                // Accept the selected directory when root.era itself was
-                // selected, even if xgameFinal.exe is stored elsewhere.
+                // root.era itself is authoritative. This also covers the
+                // Microsoft Store package where xgameFinal.exe may be hidden,
+                // protected or stored differently from Steam.
                 if (Path.GetFileName(
                         selectedEraPath)
                     .Equals(
@@ -180,12 +220,16 @@ namespace Ensemble.Services
 
             UgxMeshService.ClearCaches();
 
+            string distribution =
+                ClassifyDistribution(
+                    gameDirectory);
+
             message =
                 archiveCount >
                     0
-                    ? $"Halo Wars assets configured from {gameDirectory}. " +
+                    ? $"Halo Wars assets configured ({distribution}) from {gameDirectory}. " +
                       $"Loaded {archiveCount} shared ERA archive(s)."
-                    : "The directory was saved, but no supported shared ERA archives could be opened.";
+                    : $"The {distribution} directory was saved, but no supported shared ERA archives could be opened.";
 
             return archiveCount >
                 0;
@@ -230,8 +274,8 @@ namespace Ensemble.Services
 
             return directory ==
                 null
-                ? "Halo Wars shared asset archives were not auto-detected. Use Tools > Locate Halo Wars Game Assets."
-                : $"Halo Wars assets: {directory} | {count} shared ERA archive(s).";
+                ? "Halo Wars assets were not auto-detected. Ensemble checked Steam, Xbox app/XboxGames and Microsoft Store locations. Use Tools > Locate Halo Wars Game Assets if needed."
+                : $"Halo Wars assets ({ClassifyDistribution(directory)}): {directory} | {count} shared ERA archive(s).";
         }
 
         private static void EnsureGlobalArchives(
@@ -320,7 +364,7 @@ namespace Ensemble.Services
                         FindFileNear(
                             directory,
                             preferred,
-                            3);
+                            4);
 
                     TryOpenArchive(
                         path,
@@ -328,13 +372,12 @@ namespace Ensemble.Services
                         archives);
                 }
 
-                // Some PC installs ship similarly-named update/shared ERAs.
-                // Include only plausible root/shared/DLC archives; scenario
-                // archives are intentionally not swept into the global set.
+                // Include plausible shared archives but deliberately avoid
+                // loading every scenario ERA into the viewport resolver.
                 foreach (string eraPath
                          in EnumerateNearbyEraFiles(
                              directory,
-                             2))
+                             3))
                 {
                     string fileName =
                         Path.GetFileName(
@@ -402,8 +445,8 @@ namespace Ensemble.Services
             }
             catch
             {
-                // A damaged/unsupported optional archive should not stop the
-                // map viewport from loading the scenario ERA itself.
+                // A protected/damaged/unsupported optional archive should not
+                // stop the editor from opening the map the user selected.
             }
         }
 
@@ -422,10 +465,17 @@ namespace Ensemble.Services
                             SettingsPath)
                         .Trim();
 
-                return Directory.Exists(
-                    directory)
-                    ? directory
-                    : null;
+                if (!Directory.Exists(
+                        directory))
+                {
+                    return null;
+                }
+
+                // Do not keep a stale saved path if the game moved between
+                // Steam, Xbox app or Store package updates.
+                return FindGameDirectoryNear(
+                    directory,
+                    2);
             }
             catch
             {
@@ -454,13 +504,34 @@ namespace Ensemble.Services
         private static string? AutoDetectGameDirectory(
             EraArchiveInfo currentArchive)
         {
+            // Fast path: if the currently-open ERA is from a real game install,
+            // walk around it first. This works for Steam, XboxGames and
+            // WindowsApps without caring which storefront owns the files.
+            string? currentDirectory =
+                Path.GetDirectoryName(
+                    currentArchive.FilePath);
+
+            if (!string.IsNullOrWhiteSpace(
+                    currentDirectory))
+            {
+                string? nearCurrent =
+                    FindGameDirectoryNear(
+                        currentDirectory,
+                        4);
+
+                if (nearCurrent !=
+                    null)
+                {
+                    return nearCurrent;
+                }
+            }
+
             List<string> startingPoints =
                 new();
 
             AddDirectoryWithParents(
                 startingPoints,
-                Path.GetDirectoryName(
-                    currentArchive.FilePath));
+                currentDirectory);
 
             AddDirectoryWithParents(
                 startingPoints,
@@ -474,6 +545,9 @@ namespace Ensemble.Services
                 Environment.GetFolderPath(
                     Environment.SpecialFolder.ProgramFiles);
 
+            // ---------------------------------------------------------
+            // STEAM
+            // ---------------------------------------------------------
             AddSteamCommonDirectory(
                 startingPoints,
                 Path.Combine(
@@ -515,6 +589,40 @@ namespace Ensemble.Services
                 }
             }
 
+            // ---------------------------------------------------------
+            // XBOX APP / MICROSOFT STORE
+            // ---------------------------------------------------------
+            foreach (string xboxRoot
+                     in EnumerateXboxGameRoots())
+            {
+                string? found =
+                    FindGameDirectoryNear(
+                        xboxRoot,
+                        4);
+
+                if (found !=
+                    null)
+                {
+                    return found;
+                }
+            }
+
+            foreach (string storeRoot
+                     in EnumerateLegacyStorePackageRoots(
+                         programFiles))
+            {
+                string? found =
+                    FindGameDirectoryNear(
+                        storeRoot,
+                        5);
+
+                if (found !=
+                    null)
+                {
+                    return found;
+                }
+            }
+
             foreach (string candidate
                      in startingPoints
                          .Distinct(
@@ -523,7 +631,7 @@ namespace Ensemble.Services
                 string? found =
                     FindGameDirectoryNear(
                         candidate,
-                        1);
+                        2);
 
                 if (found !=
                     null)
@@ -533,6 +641,123 @@ namespace Ensemble.Services
             }
 
             return null;
+        }
+
+        private static IEnumerable<string> EnumerateXboxGameRoots()
+        {
+            HashSet<string> yielded =
+                new(
+                    StringComparer.OrdinalIgnoreCase);
+
+            // Current Xbox app/GDK installs normally live under X:\XboxGames.
+            // Also include ModifiableWindowsApps, used by older Xbox app builds.
+            foreach (DriveInfo drive
+                     in GetReadyDrives())
+            {
+                string xboxGames =
+                    Path.Combine(
+                        drive.RootDirectory.FullName,
+                        "XboxGames");
+
+                if (Directory.Exists(
+                        xboxGames) &&
+                    yielded.Add(
+                        xboxGames))
+                {
+                    yield return xboxGames;
+                }
+
+                string modifiable =
+                    Path.Combine(
+                        drive.RootDirectory.FullName,
+                        "Program Files",
+                        "ModifiableWindowsApps");
+
+                if (Directory.Exists(
+                        modifiable) &&
+                    yielded.Add(
+                        modifiable))
+                {
+                    yield return modifiable;
+                }
+            }
+        }
+
+        private static IEnumerable<string> EnumerateLegacyStorePackageRoots(
+            string programFiles)
+        {
+            string windowsApps =
+                Path.Combine(
+                    programFiles,
+                    "WindowsApps");
+
+            if (!Directory.Exists(
+                    windowsApps))
+            {
+                yield break;
+            }
+
+            string[] packageDirectories;
+
+            try
+            {
+                packageDirectories =
+                    Directory.EnumerateDirectories(
+                            windowsApps,
+                            StorePackagePrefix + "*",
+                            SearchOption.TopDirectoryOnly)
+                        .ToArray();
+            }
+            catch
+            {
+                // WindowsApps can be ACL-protected. Manual root.era selection
+                // still works if the user has access, so detection failure is
+                // not fatal and Ensemble never changes folder permissions.
+                yield break;
+            }
+
+            foreach (string directory
+                     in packageDirectories)
+            {
+                yield return directory;
+            }
+        }
+
+        private static IEnumerable<DriveInfo> GetReadyDrives()
+        {
+            DriveInfo[] drives;
+
+            try
+            {
+                drives =
+                    DriveInfo.GetDrives();
+            }
+            catch
+            {
+                yield break;
+            }
+
+            foreach (DriveInfo drive
+                     in drives)
+            {
+                bool ready;
+
+                try
+                {
+                    ready =
+                        drive.IsReady;
+                }
+                catch
+                {
+                    ready =
+                        false;
+                }
+
+                if (ready)
+                {
+                    yield return drive;
+                }
+            }
         }
 
         private static void AddDirectoryWithParents(
@@ -555,7 +780,7 @@ namespace Ensemble.Services
                      current !=
                          null &&
                      i <
-                         3;
+                         4;
                      i++)
                 {
                     destination.Add(
@@ -675,56 +900,90 @@ namespace Ensemble.Services
                 return null;
             }
 
+            string[] children;
+
             try
             {
-                foreach (string child
-                         in Directory.EnumerateDirectories(
-                             start))
-                {
-                    string name =
-                        Path.GetFileName(
-                            child);
-
-                    bool likely =
-                        name.Contains(
-                            "Halo",
-                            StringComparison.OrdinalIgnoreCase)
-                        ||
-                        File.Exists(
-                            Path.Combine(
-                                child,
-                                "xgameFinal.exe"))
-                        ||
-                        File.Exists(
-                            Path.Combine(
-                                child,
-                                "root.era"));
-
-                    if (!likely &&
-                        maxDepth <=
-                            1)
-                    {
-                        continue;
-                    }
-
-                    string? found =
-                        FindGameDirectoryNear(
-                            child,
-                            maxDepth -
-                            1);
-
-                    if (found !=
-                        null)
-                    {
-                        return found;
-                    }
-                }
+                children =
+                    Directory.EnumerateDirectories(
+                            start)
+                        .ToArray();
             }
             catch
             {
+                return null;
+            }
+
+            // First pass prioritises paths that actually look like Halo Wars,
+            // Xbox app content folders or the BulldogThreshold Store package.
+            foreach (string child
+                     in children
+                         .OrderByDescending(
+                             IsLikelyHaloWarsDirectory))
+            {
+                if (!IsLikelyHaloWarsDirectory(
+                        child) &&
+                    maxDepth <=
+                        2)
+                {
+                    continue;
+                }
+
+                string? found =
+                    FindGameDirectoryNear(
+                        child,
+                        maxDepth -
+                        1);
+
+                if (found !=
+                    null)
+                {
+                    return found;
+                }
             }
 
             return null;
+        }
+
+        private static bool IsLikelyHaloWarsDirectory(
+            string path)
+        {
+            string name =
+                Path.GetFileName(
+                    path);
+
+            if (name.Contains(
+                    "Halo",
+                    StringComparison.OrdinalIgnoreCase) ||
+                name.Contains(
+                    "Wars",
+                    StringComparison.OrdinalIgnoreCase) ||
+                name.Contains(
+                    "BulldogThreshold",
+                    StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(
+                    "Content",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            try
+            {
+                return File.Exists(
+                           Path.Combine(
+                               path,
+                               "root.era"))
+                       ||
+                       File.Exists(
+                           Path.Combine(
+                               path,
+                               "xgameFinal.exe"));
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string? FindFileNear(
@@ -749,28 +1008,35 @@ namespace Ensemble.Services
                 return null;
             }
 
+            string[] children;
+
             try
             {
-                foreach (string child
-                         in Directory.EnumerateDirectories(
-                             directory))
-                {
-                    string? found =
-                        FindFileNear(
-                            child,
-                            fileName,
-                            maxDepth -
-                            1);
-
-                    if (found !=
-                        null)
-                    {
-                        return found;
-                    }
-                }
+                children =
+                    Directory.EnumerateDirectories(
+                            directory)
+                        .ToArray();
             }
             catch
             {
+                return null;
+            }
+
+            foreach (string child
+                     in children)
+            {
+                string? found =
+                    FindFileNear(
+                        child,
+                        fileName,
+                        maxDepth -
+                        1);
+
+                if (found !=
+                    null)
+                {
+                    return found;
+                }
             }
 
             return null;
@@ -786,7 +1052,7 @@ namespace Ensemble.Services
                 yield break;
             }
 
-            IEnumerable<string> files;
+            string[] files;
 
             try
             {
@@ -840,6 +1106,54 @@ namespace Ensemble.Services
                     yield return file;
                 }
             }
+        }
+
+        private static string ClassifyDistribution(
+            string? gameDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    gameDirectory))
+            {
+                return "Unknown PC installation";
+            }
+
+            string normalized =
+                gameDirectory.Replace(
+                    '/',
+                    '\\');
+
+            if (normalized.Contains(
+                    "\\WindowsApps\\" +
+                    StorePackagePrefix,
+                    StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(
+                    StorePackagePrefix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "Microsoft Store / Xbox app";
+            }
+
+            if (normalized.Contains(
+                    "\\XboxGames\\",
+                    StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(
+                    "\\ModifiableWindowsApps\\",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "Xbox app";
+            }
+
+            if (normalized.Contains(
+                    "\\steamapps\\",
+                    StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains(
+                    "\\Steam\\",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "Steam";
+            }
+
+            return "Halo Wars PC";
         }
     }
 }
