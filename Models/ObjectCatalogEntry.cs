@@ -157,8 +157,15 @@ namespace Ensemble.Models
         }
 
         public bool CanPlace =>
-            Layer !=
-            ObjectCatalogLayer.ImportedMesh;
+            Layer != ObjectCatalogLayer.ImportedMesh
+            ||
+            ImportedMesh?.Extension.Equals(
+                ".obj",
+                StringComparison.OrdinalIgnoreCase) == true
+            ||
+            ImportedMesh?.Extension.Equals(
+                ".fbx",
+                StringComparison.OrdinalIgnoreCase) == true;
 
         public string LayerName =>
             Layer switch

@@ -1,4 +1,4 @@
-using Ensemble.Models;
+﻿using Ensemble.Models;
 using Ensemble.Services;
 using Microsoft.Win32;
 using System.IO;
@@ -248,6 +248,53 @@ namespace Ensemble
             await LoadGameLibraryAsync();
         }
 
+        private void ManageCustomMeshes_Click(
+            object sender,
+            RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_initialEraPath) ||
+                !File.Exists(_initialEraPath))
+            {
+                MessageBox.Show(
+                    this,
+                    "Open a map ERA before managing embedded custom meshes.",
+                    "Embedded Custom Meshes",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                return;
+            }
+
+            CustomMeshManagerWindow dialog =
+                new CustomMeshManagerWindow(_initialEraPath)
+                {
+                    Owner = this
+                };
+
+            dialog.ShowDialog();
+
+            if (dialog.QueuedDeletionCount > 0)
+            {
+                if (Owner is MainWindow owner)
+                {
+                    owner.ApplyEmbeddedCustomMeshDeletionFromBrowser(
+                        dialog.QueuedRecords);
+                }
+                else
+                {
+                    CustomMeshPendingAssetService.QueueDelete(
+                        dialog.QueuedRecords);
+                }
+
+                _libraryStatusMessage =
+                    $"{dialog.QueuedDeletionCount:N0} custom mesh deletion(s) queued. " +
+                    "Close Object Browser and save the map (Ctrl+S) to apply them.";
+
+                WarningText.Text =
+                    _libraryStatusMessage;
+            }
+        }
+
         private async Task AddExternalEraAsync(
             string eraPath)
         {
@@ -390,6 +437,9 @@ namespace Ensemble
                 !busy;
 
             RescanButton.IsEnabled =
+                !busy;
+
+            ManageCustomMeshesButton.IsEnabled =
                 !busy;
 
             ObjectsList.IsEnabled =
@@ -766,10 +816,17 @@ namespace Ensemble
             if (SelectedEntry?.Layer ==
                 ObjectCatalogLayer.ImportedMesh)
             {
+                bool supported =
+                    SelectedEntry.CanPlace;
+
                 WarningText.Text =
-                    "This custom mesh is staged in Ensemble's local library. " +
-                    "Raw mesh -> Halo Wars UGX conversion is not implemented yet, " +
-                    "so it cannot be placed into an ERA in this build.";
+                    supported
+                        ? "OBJ/FBX geometry is ready for native Halo Wars UGX compilation. " +
+                          "Ensemble will reserve an unused rigid SC2 visual slot, compile the model, " +
+                          "and embed its map-local UGX when you save. Initial custom meshes inherit " +
+                          "the stock slot's Halo Wars material."
+                        : "This staged mesh format is not yet supported by the native UGX compiler. " +
+                          "Export it as OBJ or FBX first.";
             }
             else
             {
@@ -822,6 +879,65 @@ namespace Ensemble
             if (SelectedEntry ==
                 null)
             {
+                return;
+            }
+
+            if (SelectedEntry.Layer ==
+                ObjectCatalogLayer.ImportedMesh)
+            {
+                if (!SelectedEntry.CanPlace)
+                {
+                    MessageBox.Show(
+                        this,
+                        "Export the model as OBJ or FBX before compiling it to Halo Wars UGX.",
+                        "Unsupported Custom Mesh",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+
+                    return;
+                }
+
+                if (Owner is not MainWindow owner)
+                {
+                    throw new InvalidOperationException(
+                        "The Object Browser has no owning map editor window.");
+                }
+
+                try
+                {
+                    ImportButton.IsEnabled = false;
+                    ObjectsList.IsEnabled = false;
+                    Cursor = System.Windows.Input.Cursors.Wait;
+                    WarningText.Text =
+                        "COMPILING CUSTOM MODEL TO HALO WARS UGX...";
+
+                    owner.PlaceImportedMeshFromBrowser(
+                        SelectedEntry,
+                        _allEntries,
+                        _previewArchives);
+
+                    // The MainWindow placement method already cloned the SC2
+                    // object and registered the generated UGX for the next
+                    // save. Return false so OpenObjectBrowserNext does not
+                    // route this ImportedMesh through the normal SCN path.
+                    DialogResult = false;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        this,
+                        ex.ToString(),
+                        "Custom Mesh Placement Failed",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+
+                    ImportButton.IsEnabled = true;
+                    ObjectsList.IsEnabled = true;
+                    Cursor = null;
+                    WarningText.Text =
+                        "Custom mesh compilation failed. Choose another model or review the error details.";
+                }
+
                 return;
             }
 

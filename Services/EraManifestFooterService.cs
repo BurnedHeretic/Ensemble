@@ -44,6 +44,16 @@ namespace Ensemble.Services
             ArgumentNullException.ThrowIfNull(encryptedEra);
             ArgumentNullException.ThrowIfNull(manifest);
 
+            // v30: generated custom UGX files are queued while the user edits
+            // the map. Inject them into the already rebuilt ERA immediately
+            // before attaching ENSMAP1. This keeps the large MainWindow save
+            // pipeline unchanged and means ordinary Ctrl+S / Save As both use
+            // exactly the same custom-asset path.
+            encryptedEra =
+                CustomMeshPendingAssetService.InjectPending(
+                    encryptedEra,
+                    manifest.ScenarioFile);
+
             if (encryptedEra.Length < 4096 || (encryptedEra.Length & 4095) != 0)
             {
                 throw new InvalidDataException(
@@ -89,16 +99,13 @@ namespace Ensemble.Services
                 return null;
             }
 
-
             byte[] data =
                 File.ReadAllBytes(
                     eraPath);
 
-
             return TryRead(
                 data);
         }
-
 
         public static Manifest? TryRead(
             byte[] eraData)
@@ -106,20 +113,17 @@ namespace Ensemble.Services
             ArgumentNullException.ThrowIfNull(
                 eraData);
 
-
             if (eraData.Length <
                 FooterSize)
             {
                 return null;
             }
 
-
             ReadOnlySpan<byte> footer =
                 eraData.AsSpan(
                     eraData.Length -
                     FooterSize,
                     FooterSize);
-
 
             if (!footer
                     .Slice(
@@ -131,14 +135,12 @@ namespace Ensemble.Services
                 return null;
             }
 
-
             uint version =
                 BinaryPrimitives
                     .ReadUInt32LittleEndian(
                         footer.Slice(
                             8,
                             4));
-
 
             if (version !=
                 Version)
@@ -147,14 +149,12 @@ namespace Ensemble.Services
                     $"Unsupported Ensemble ERA manifest version: {version}");
             }
 
-
             uint maxPlayers =
                 BinaryPrimitives
                     .ReadUInt32LittleEndian(
                         footer.Slice(
                             12,
                             4));
-
 
             if (maxPlayers is not
                 (2 or 4 or 6))
@@ -163,20 +163,17 @@ namespace Ensemble.Services
                     $"Invalid Ensemble manifest MaxPlayers value: {maxPlayers}");
             }
 
-
             string scenarioFile =
                 ReadUtf8(
                     footer,
                     ScenarioOffset,
                     ScenarioSize);
 
-
             string displayName =
                 ReadUtf8(
                     footer,
                     DisplayNameOffset,
                     DisplayNameSize);
-
 
             if (string.IsNullOrWhiteSpace(
                     scenarioFile) ||
@@ -186,7 +183,6 @@ namespace Ensemble.Services
                 throw new InvalidDataException(
                     "The Ensemble ERA manifest is incomplete.");
             }
-
 
             return new Manifest
             {
@@ -220,7 +216,6 @@ namespace Ensemble.Services
             };
         }
 
-
         private static string ReadUtf8(
             ReadOnlySpan<byte> footer,
             int offset,
@@ -231,11 +226,9 @@ namespace Ensemble.Services
                     offset,
                     capacity);
 
-
             int terminator =
                 field.IndexOf(
                     (byte)0);
-
 
             if (terminator >=
                 0)
@@ -244,7 +237,6 @@ namespace Ensemble.Services
                     field[
                         ..terminator];
             }
-
 
             return Encoding.UTF8.GetString(
                 field);

@@ -1,0 +1,303 @@
+﻿<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Ensemble v32
+        Global Halo Wars styling for ComboBox / ComboBoxItem.
+
+        The stock Windows ComboBox template paints parts of the control and
+        popup with system colours, so merely setting Background/Foreground in
+        HaloWarsTheme.xaml still produced white boxes with pale text.
+
+        This dictionary is merged AFTER HaloWarsTheme.xaml and therefore
+        replaces the default ComboBox chrome application-wide while reusing
+        the existing Halo Wars brushes.
+    -->
+
+    <Style x:Key="HwComboBoxToggleButtonStyle"
+           TargetType="{x:Type ToggleButton}">
+        <Setter Property="Focusable"
+                Value="False"/>
+        <Setter Property="ClickMode"
+                Value="Press"/>
+        <Setter Property="Background"
+                Value="{DynamicResource HwPanelRaisedBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{DynamicResource HwLineBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToggleButton}">
+                    <Border x:Name="Root"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Border Height="1"
+                                    VerticalAlignment="Top"
+                                    Background="{DynamicResource HwAccentBrightBrush}"
+                                    Opacity="0.22"/>
+
+                            <Border Width="28"
+                                    HorizontalAlignment="Right"
+                                    Background="#0B2231"
+                                    BorderBrush="{DynamicResource HwLineBrush}"
+                                    BorderThickness="1,0,0,0">
+                                <Path x:Name="Arrow"
+                                      Width="8"
+                                      Height="5"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Stretch="Fill"
+                                      Fill="{DynamicResource HwAccentBrightBrush}"
+                                      Data="M 0 0 L 8 0 L 4 5 Z"/>
+                            </Border>
+                        </Grid>
+                    </Border>
+
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver"
+                                 Value="True">
+                            <Setter TargetName="Root"
+                                    Property="Background"
+                                    Value="{DynamicResource HwPanelHoverBrush}"/>
+                            <Setter TargetName="Root"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource HwAccentBrush}"/>
+                        </Trigger>
+
+                        <Trigger Property="IsChecked"
+                                 Value="True">
+                            <Setter TargetName="Root"
+                                    Property="Background"
+                                    Value="{DynamicResource HwBlueSelectionBrush}"/>
+                            <Setter TargetName="Root"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource HwOrangeBrightBrush}"/>
+                            <Setter TargetName="Arrow"
+                                    Property="Fill"
+                                    Value="White"/>
+                        </Trigger>
+
+                        <Trigger Property="IsEnabled"
+                                 Value="False">
+                            <Setter TargetName="Root"
+                                    Property="Opacity"
+                                    Value="0.48"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="HwComboBoxItemStyle"
+           TargetType="{x:Type ComboBoxItem}">
+        <Setter Property="Foreground"
+                Value="{DynamicResource HwTextBrush}"/>
+        <Setter Property="Background"
+                Value="Transparent"/>
+        <Setter Property="Padding"
+                Value="9,6"/>
+        <Setter Property="HorizontalContentAlignment"
+                Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment"
+                Value="Center"/>
+        <Setter Property="MinHeight"
+                Value="27"/>
+        <Setter Property="SnapsToDevicePixels"
+                Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+                    <Border x:Name="ItemBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="Transparent"
+                            BorderThickness="1"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          RecognizesAccessKey="True"/>
+                    </Border>
+
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver"
+                                 Value="True">
+                            <Setter TargetName="ItemBorder"
+                                    Property="Background"
+                                    Value="{DynamicResource HwPanelHoverBrush}"/>
+                            <Setter TargetName="ItemBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource HwAccentBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="White"/>
+                        </Trigger>
+
+                        <Trigger Property="IsSelected"
+                                 Value="True">
+                            <Setter TargetName="ItemBorder"
+                                    Property="Background"
+                                    Value="{DynamicResource HwOrangeSelectionBrush}"/>
+                            <Setter TargetName="ItemBorder"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource HwOrangeBrightBrush}"/>
+                            <Setter Property="Foreground"
+                                    Value="White"/>
+                        </Trigger>
+
+                        <Trigger Property="IsEnabled"
+                                 Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{DynamicResource HwDisabledTextBrush}"/>
+                            <Setter Property="Opacity"
+                                    Value="0.55"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Implicit item style ensures items created in code as well as explicit
+         ComboBoxItem elements receive the same dark popup treatment. -->
+    <Style TargetType="{x:Type ComboBoxItem}"
+           BasedOn="{StaticResource HwComboBoxItemStyle}"/>
+
+    <Style TargetType="{x:Type ComboBox}">
+        <Setter Property="Foreground"
+                Value="{DynamicResource HwTextBrush}"/>
+        <Setter Property="Background"
+                Value="{DynamicResource HwPanelRaisedBrush}"/>
+        <Setter Property="BorderBrush"
+                Value="{DynamicResource HwLineBrush}"/>
+        <Setter Property="BorderThickness"
+                Value="1"/>
+        <Setter Property="Padding"
+                Value="8,4,34,4"/>
+        <Setter Property="MinHeight"
+                Value="28"/>
+        <Setter Property="VerticalContentAlignment"
+                Value="Center"/>
+        <Setter Property="HorizontalContentAlignment"
+                Value="Left"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility"
+                Value="Auto"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility"
+                Value="Auto"/>
+        <Setter Property="ScrollViewer.CanContentScroll"
+                Value="True"/>
+        <Setter Property="MaxDropDownHeight"
+                Value="360"/>
+        <Setter Property="ItemContainerStyle"
+                Value="{StaticResource HwComboBoxItemStyle}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ComboBox}">
+                    <Grid x:Name="Root"
+                          SnapsToDevicePixels="True">
+                        <ToggleButton x:Name="DropDownToggle"
+                                      Style="{StaticResource HwComboBoxToggleButtonStyle}"
+                                      Background="{TemplateBinding Background}"
+                                      BorderBrush="{TemplateBinding BorderBrush}"
+                                      BorderThickness="{TemplateBinding BorderThickness}"
+                                      IsChecked="{Binding IsDropDownOpen,
+                                                          Mode=TwoWay,
+                                                          RelativeSource={RelativeSource TemplatedParent}}"/>
+
+                        <ContentPresenter x:Name="ContentSite"
+                                          Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          IsHitTestVisible="False"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                          RecognizesAccessKey="True"/>
+
+                        <TextBox x:Name="PART_EditableTextBox"
+                                 Margin="7,2,32,2"
+                                 HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                 VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                 Background="Transparent"
+                                 Foreground="{TemplateBinding Foreground}"
+                                 BorderThickness="0"
+                                 CaretBrush="{DynamicResource HwAccentBrightBrush}"
+                                 SelectionBrush="{DynamicResource HwOrangeBrush}"
+                                 IsReadOnly="{TemplateBinding IsReadOnly}"
+                                 Visibility="Hidden"/>
+
+                        <Popup x:Name="PART_Popup"
+                               Placement="Bottom"
+                               PlacementTarget="{Binding ElementName=Root}"
+                               IsOpen="{TemplateBinding IsDropDownOpen}"
+                               AllowsTransparency="True"
+                               Focusable="False"
+                               PopupAnimation="Fade">
+                            <Border x:Name="DropDownBorder"
+                                    MinWidth="{Binding ActualWidth, ElementName=Root}"
+                                    MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                    Background="{DynamicResource HwPanelGradientBrush}"
+                                    BorderBrush="{DynamicResource HwAccentBrush}"
+                                    BorderThickness="1"
+                                    Padding="2"
+                                    SnapsToDevicePixels="True">
+                                <ScrollViewer Margin="0"
+                                              SnapsToDevicePixels="True"
+                                              CanContentScroll="True">
+                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                </ScrollViewer>
+                            </Border>
+                        </Popup>
+                    </Grid>
+
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsEditable"
+                                 Value="True">
+                            <Setter TargetName="ContentSite"
+                                    Property="Visibility"
+                                    Value="Hidden"/>
+                            <Setter TargetName="PART_EditableTextBox"
+                                    Property="Visibility"
+                                    Value="Visible"/>
+                        </Trigger>
+
+                        <Trigger Property="IsKeyboardFocusWithin"
+                                 Value="True">
+                            <Setter TargetName="DropDownToggle"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource HwAccentBrightBrush}"/>
+                        </Trigger>
+
+                        <Trigger Property="IsDropDownOpen"
+                                 Value="True">
+                            <Setter TargetName="DropDownToggle"
+                                    Property="BorderBrush"
+                                    Value="{DynamicResource HwOrangeBrightBrush}"/>
+                        </Trigger>
+
+                        <Trigger Property="HasItems"
+                                 Value="False">
+                            <Setter TargetName="DropDownBorder"
+                                    Property="MinHeight"
+                                    Value="28"/>
+                        </Trigger>
+
+                        <Trigger Property="IsEnabled"
+                                 Value="False">
+                            <Setter Property="Foreground"
+                                    Value="{DynamicResource HwDisabledTextBrush}"/>
+                            <Setter TargetName="Root"
+                                    Property="Opacity"
+                                    Value="0.55"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

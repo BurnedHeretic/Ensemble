@@ -7,6 +7,9 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/HaloWarsTheme.xaml"/>
+                <!-- v32: replaces the Windows default ComboBox chrome with
+                     a Halo Wars-styled template, including the popup list. -->
+                <ResourceDictionary Source="Themes/HaloWarsComboBox.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
