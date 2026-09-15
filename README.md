@@ -178,7 +178,7 @@ This is an initial public release and Halo Wars contains many specialised object
 - Some uncommon or specialised UGX assets may fail to resolve and use a fallback representation.
 - Cross-map object import cannot guarantee that every map-specific script, trigger, dependency, or game rule follows the imported object automatically.
 - Some internal object names still require further friendly-name mapping.
-- Custom mesh import is experimental; fully automated game-ready dependency injection for arbitrary new meshes is still an area for future work.
+- Custom mesh import is experimental.
 - Modified maps should be tested in-game before being distributed.
 
 If something fails, include the map/ERA name, the action that caused the issue, and any exception text when reporting it.
