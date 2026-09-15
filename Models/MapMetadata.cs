@@ -1,4 +1,4 @@
-﻿namespace Ensemble.Models
+namespace Ensemble.Models
 {
     public sealed class MapMetadata
     {
@@ -8,13 +8,11 @@
             set;
         } = 1;
 
-
         public string DisplayName
         {
             get;
             set;
         } = string.Empty;
-
 
         public string Description
         {
@@ -22,6 +20,16 @@
             set;
         } = string.Empty;
 
+        /// <summary>
+        /// Maximum supported players for the custom map.
+        /// Halo Wars skirmish scenarios support 2, 4 or 6 players.
+        /// A value of 0 means "infer from scenario/manifest" for older maps.
+        /// </summary>
+        public int PlayerCount
+        {
+            get;
+            set;
+        }
 
         public MapMetadata Clone()
         {
@@ -34,7 +42,10 @@
                     DisplayName,
 
                 Description =
-                    Description
+                    Description,
+
+                PlayerCount =
+                    PlayerCount
             };
         }
     }
