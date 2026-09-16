@@ -118,6 +118,9 @@ namespace Ensemble
 
             ApplyMainWindowChromeV23();
 
+            // v34: add the experimental Halo Reach/MCC cache-map importer.
+            InitializeHaloMapImportV34();
+
             Wire3DViewportSculptInputV20();
 
             WireTransformGizmoV25();
@@ -176,11 +179,33 @@ namespace Ensemble
                 new ViewportTransformGizmo(
                     _ensemble3DViewport);
 
+            // Halo Wars SC2 ArtObjects expose position/orientation but not a
+            // standalone uniform scale field.  Imported custom meshes therefore
+            // delegate scale preview/commit back to MainWindow, where Ensemble
+            // can bake the chosen scale into the queued custom UGX safely.
+            _transformGizmoV25.ScaleReader =
+                GetCustomMeshScaleForGizmoV356;
+
+            _transformGizmoV25.ScaleWriter =
+                SetCustomMeshScaleForGizmoV356;
+
             _transformGizmoV25.LiveMoved +=
                 HaloWarsUiV25_GizmoLiveMoved;
 
             _transformGizmoV25.MoveCommitted +=
                 HaloWarsUiV25_GizmoMoveCommitted;
+
+            _transformGizmoV25.LiveRotated +=
+                HaloWarsUiV356_GizmoLiveRotated;
+
+            _transformGizmoV25.RotationCommitted +=
+                HaloWarsUiV356_GizmoRotationCommitted;
+
+            _transformGizmoV25.LiveScaled +=
+                HaloWarsUiV356_GizmoLiveScaled;
+
+            _transformGizmoV25.ScaleCommitted +=
+                HaloWarsUiV356_GizmoScaleCommitted;
         }
 
         private void HaloWarsUiV25_GizmoLiveMoved(
@@ -198,6 +223,12 @@ namespace Ensemble
             // the handle continuously without touching terrain or camera state.
             Refresh3DViewportNext(
                 false);
+
+            // Refresh3DViewportNext resolves the stock UGX borrowed by a custom
+            // mesh placement.  Re-apply Ensemble's live generated geometry on
+            // top immediately so imported BSPs/custom meshes do not disappear
+            // (or momentarily turn back into the donor object) while moving.
+            ApplyCustomMeshViewportPreviews();
         }
 
         private void HaloWarsUiV25_GizmoMoveCommitted(
@@ -224,6 +255,84 @@ namespace Ensemble
 
             Refresh3DViewportNext(
                 false);
+
+            ApplyCustomMeshViewportPreviews();
+        }
+
+        private void HaloWarsUiV356_GizmoLiveRotated(
+            object? sender,
+            ScenarioItemRotatedEventArgs e)
+        {
+            if (_viewportTerrainStrokeV20 ||
+                ScenarioMapCanvas
+                    .IsTerrainSculptActive)
+            {
+                return;
+            }
+
+            Refresh3DViewportNext(
+                false);
+
+            ApplyCustomMeshViewportPreviews();
+        }
+
+        private void HaloWarsUiV356_GizmoRotationCommitted(
+            object? sender,
+            ScenarioItemRotatedEventArgs e)
+        {
+            if (_viewportTerrainStrokeV20 ||
+                ScenarioMapCanvas
+                    .IsTerrainSculptActive)
+            {
+                return;
+            }
+
+            // The gizmo has already written Forward/Right on the selected
+            // ScenarioObject/ScenarioArtObject.  Feed the normal rotation event
+            // into MainWindow so the edit receives the existing undo/redo and
+            // SC2 save behaviour rather than inventing a second transform path.
+            ScenarioMapCanvas_ItemRotated(
+                ScenarioMapCanvas,
+                e);
+
+            Refresh3DViewportNext(
+                false);
+
+            ApplyCustomMeshViewportPreviews();
+        }
+
+        private void HaloWarsUiV356_GizmoLiveScaled(
+            object? sender,
+            ScenarioItemScaledEventArgs e)
+        {
+            if (_viewportTerrainStrokeV20 ||
+                ScenarioMapCanvas
+                    .IsTerrainSculptActive)
+            {
+                return;
+            }
+
+            // ScaleWriter updates the cached custom-mesh preview without
+            // recompiling UGX every mouse-move.  Re-applying is cheap because
+            // the preview MeshGeometry3D is cached for the import session.
+            ApplyCustomMeshViewportPreviews();
+        }
+
+        private void HaloWarsUiV356_GizmoScaleCommitted(
+            object? sender,
+            ScenarioItemScaledEventArgs e)
+        {
+            if (_viewportTerrainStrokeV20 ||
+                ScenarioMapCanvas
+                    .IsTerrainSculptActive)
+            {
+                return;
+            }
+
+            CommitCustomMeshScaleFromGizmoV356(
+                e);
+
+            ApplyCustomMeshViewportPreviews();
         }
 
         private void Wire3DViewportSculptInputV20()
@@ -283,6 +392,24 @@ namespace Ensemble
 
                 _transformGizmoV25.MoveCommitted -=
                     HaloWarsUiV25_GizmoMoveCommitted;
+
+                _transformGizmoV25.LiveRotated -=
+                    HaloWarsUiV356_GizmoLiveRotated;
+
+                _transformGizmoV25.RotationCommitted -=
+                    HaloWarsUiV356_GizmoRotationCommitted;
+
+                _transformGizmoV25.LiveScaled -=
+                    HaloWarsUiV356_GizmoLiveScaled;
+
+                _transformGizmoV25.ScaleCommitted -=
+                    HaloWarsUiV356_GizmoScaleCommitted;
+
+                _transformGizmoV25.ScaleReader =
+                    null;
+
+                _transformGizmoV25.ScaleWriter =
+                    null;
 
                 _transformGizmoV25.Dispose();
                 _transformGizmoV25 =

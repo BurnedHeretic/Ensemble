@@ -1,4 +1,4 @@
-﻿using Ensemble.Models;
+using Ensemble.Models;
 using Ensemble.Services;
 using System.IO;
 
@@ -201,6 +201,12 @@ namespace Ensemble
                             scenarioFile,
                             ugxArchivePath,
                             placedCustomObject.Id);
+
+                        CustomMeshViewportPreviewService.Register(
+                            scenarioFile,
+                            placedCustomObject.Id,
+                            geometry,
+                            stockUgx);
                     }
                     catch
                     {
@@ -211,6 +217,14 @@ namespace Ensemble
                     }
 
                     UgxMeshService.ClearCaches();
+
+                    Dispatcher.BeginInvoke(
+                        new Action(
+                            () =>
+                            {
+                                Refresh3DViewportNext(false);
+                                ApplyCustomMeshViewportPreviews();
+                            }));
 
                     StatusText.Text =
                         "Placed SC2 ArtObject custom mesh " +
@@ -306,11 +320,160 @@ namespace Ensemble
                 UpdateDirtyState();
             }
 
+            if (_currentScenarioChunk != null)
+            {
+                foreach (CustomMeshPendingAssetService.EmbeddedCustomMeshRecord record in records)
+                {
+                    if (record.ArtObjectId > 0)
+                    {
+                        CustomMeshViewportPreviewService.Remove(
+                            _currentScenarioChunk.FileName,
+                            record.ArtObjectId);
+                    }
+                }
+            }
+
             CustomMeshPendingAssetService.QueueDelete(records);
 
             StatusText.Text =
                 $"Queued {records.Count:N0} embedded custom mesh deletion(s) | " +
                 "save the ERA to remove the SC2 placement and restore the stock UGX slot";
+        }
+
+        internal bool TryDeleteCustomMeshPlacementFromKeyboard(
+            ScenarioArtObject artObject)
+        {
+            ArgumentNullException.ThrowIfNull(artObject);
+
+            if (_currentScenarioChunk == null ||
+                _currentArchive == null)
+            {
+                return false;
+            }
+
+            string scenarioFile =
+                _currentScenarioChunk.FileName;
+
+            // Saved/embedded custom meshes must use the full restore path so
+            // the registry and borrowed stock UGX are repaired on next save.
+            try
+            {
+                CustomMeshPendingAssetService.EmbeddedCustomMeshRecord? embedded =
+                    CustomMeshPendingAssetService
+                        .LoadEmbedded(_currentArchive.FilePath)
+                        .FirstOrDefault(
+                            record =>
+                                record.ArtObjectId == artObject.Id);
+
+                if (embedded != null)
+                {
+                    ApplyEmbeddedCustomMeshDeletionFromBrowser(
+                        new[]
+                        {
+                            embedded
+                        });
+
+                    return true;
+                }
+            }
+            catch
+            {
+                // The current ERA may not contain a registry yet (for a mesh
+                // placed during this unsaved session).  Pending lookup below
+                // handles that case without touching the archive on disk.
+            }
+
+            if (!CustomMeshPendingAssetService
+                    .TryGetPendingRecordForArtObject(
+                        scenarioFile,
+                        artObject.Id,
+                        out CustomMeshPendingAssetService.EmbeddedCustomMeshRecord? pendingRecord)
+                || pendingRecord == null)
+            {
+                return false;
+            }
+
+            RemoveCustomMeshArtObjectLive(
+                artObject.Id);
+
+            CustomMeshPendingAssetService.CancelPendingPlacement(
+                scenarioFile,
+                artObject.Id);
+
+            CustomMeshViewportPreviewService.Remove(
+                scenarioFile,
+                artObject.Id);
+
+            StatusText.Text =
+                $"Deleted unsaved custom mesh {pendingRecord.DisplayName} | " +
+                "generated UGX queue cancelled";
+
+            return true;
+        }
+
+        private void RemoveCustomMeshArtObjectLive(
+            int artObjectId)
+        {
+            if (_currentArtObjectsChunk == null ||
+                _currentArtObjectsOriginalSc2Data == null)
+            {
+                throw new InvalidOperationException(
+                    "The current map has no editable SC2 ArtObjects companion.");
+            }
+
+            ScenarioArtObject? live =
+                _currentArtObjects
+                    .FirstOrDefault(
+                        obj =>
+                            obj.Id == artObjectId);
+
+            if (live == null)
+                return;
+
+            byte[] sourceSc2 =
+                _pendingArtObjectsSc2Replacement
+                ??
+                _currentArtObjectsOriginalSc2Data;
+
+            byte[] modifiedSc2 =
+                ScenarioArtObjectsService.RemoveObjects(
+                    sourceSc2,
+                    new[]
+                    {
+                        artObjectId
+                    },
+                    out int removedCount);
+
+            if (removedCount <= 0)
+            {
+                throw new InvalidOperationException(
+                    "The selected custom mesh SC2 placement is no longer present in the current editor state.");
+            }
+
+            _pendingArtObjectsSc2Replacement =
+                modifiedSc2;
+
+            _artObjectsDirty =
+                true;
+
+            _currentArtObjects.RemoveAll(
+                obj =>
+                    obj.Id == artObjectId);
+
+            if (_selectedScenarioItem
+                    is ScenarioArtObject selected &&
+                selected.Id == artObjectId)
+            {
+                _selectedScenarioItem =
+                    null;
+
+                ScenarioMapCanvas.ClearSelection();
+                _ensemble3DViewport?.SelectItem(null);
+            }
+
+            RefreshArtObjectLayer();
+            Refresh3DViewportNext(false);
+            UpdateDirtyState();
         }
 
         private HashSet<string> ResolveUsedUgxPathsForCurrentMap()

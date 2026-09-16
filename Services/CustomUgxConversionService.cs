@@ -208,12 +208,31 @@ namespace Ensemble.Services
 
                 int indexOffset = globalIndexCount;
 
+                // Do not stackalloc inside this loop. Large imported BSPs can
+                // contain tens of thousands of indices in a section and C#
+                // stackalloc storage lives until the containing method returns.
+                // Repeated stackalloc here therefore grows the stack until a
+                // StackOverflowException occurs. Build one heap buffer for the
+                // whole section and write it to the stream in a single call.
+                byte[] sectionIndexBytes =
+                    new byte[checked(vertexCount * 2)];
+
+                Span<byte> sectionIndexSpan =
+                    sectionIndexBytes.AsSpan();
+
                 for (int i = 0; i < vertexCount; i++)
                 {
-                    Span<byte> indexBytes = stackalloc byte[2];
-                    WriteUInt16(indexBytes, checked((ushort)i), bigEndian);
-                    indexStream.Write(indexBytes);
+                    WriteUInt16(
+                        sectionIndexSpan,
+                        checked(i * 2),
+                        checked((ushort)i),
+                        bigEndian);
                 }
+
+                indexStream.Write(
+                    sectionIndexBytes,
+                    0,
+                    sectionIndexBytes.Length);
 
                 globalIndexCount = checked(globalIndexCount + vertexCount);
 

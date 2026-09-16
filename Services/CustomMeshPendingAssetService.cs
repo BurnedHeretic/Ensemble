@@ -1,4 +1,4 @@
-﻿using Ensemble.Models;
+using Ensemble.Models;
 using System.IO;
 using System.Text.Json;
 
@@ -84,7 +84,7 @@ namespace Ensemble.Services
         {
             public required string ScenarioKey { get; set; }
             public required string ArchivePath { get; init; }
-            public required byte[] Data { get; init; }
+            public required byte[] Data { get; set; }
             public required string MeshId { get; init; }
             public required string DisplayName { get; init; }
             public required string TemplateEraHint { get; init; }
@@ -231,6 +231,123 @@ namespace Ensemble.Services
                         item.ArchivePath.Equals(
                             path,
                             StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        public static bool UpdateDataForArtObject(
+            string scenarioFile,
+            int artObjectId,
+            byte[] data)
+        {
+            ArgumentNullException.ThrowIfNull(data);
+
+            if (artObjectId <= 0 || data.Length == 0)
+                return false;
+
+            string scenarioKey = NormalizeScenarioKey(scenarioFile);
+
+            lock (Sync)
+            {
+                PendingAsset? asset =
+                    Pending.LastOrDefault(
+                        item =>
+                            item.ArtObjectId == artObjectId &&
+                            item.ScenarioKey.Equals(
+                                scenarioKey,
+                                StringComparison.OrdinalIgnoreCase));
+
+                if (asset == null)
+                    return false;
+
+                asset.Data = data.ToArray();
+                return true;
+            }
+        }
+
+        public static bool TryGetPendingRecordForArtObject(
+            string scenarioFile,
+            int artObjectId,
+            out EmbeddedCustomMeshRecord? record)
+        {
+            record = null;
+
+            if (artObjectId <= 0)
+                return false;
+
+            string scenarioKey = NormalizeScenarioKey(scenarioFile);
+
+            lock (Sync)
+            {
+                PendingAsset? asset =
+                    Pending.LastOrDefault(
+                        item =>
+                            item.ArtObjectId == artObjectId &&
+                            item.ScenarioKey.Equals(
+                                scenarioKey,
+                                StringComparison.OrdinalIgnoreCase));
+
+                if (asset == null)
+                    return false;
+
+                record =
+                    new EmbeddedCustomMeshRecord
+                    {
+                        MeshId = asset.MeshId,
+                        DisplayName = asset.DisplayName,
+                        ScenarioKey = asset.ScenarioKey,
+                        UgxArchivePath = asset.ArchivePath,
+                        ArtObjectId = asset.ArtObjectId,
+                        TemplateEraHint = asset.TemplateEraHint
+                    };
+
+                return true;
+            }
+        }
+
+        public static bool CancelPendingPlacement(
+            string scenarioFile,
+            int artObjectId)
+        {
+            if (artObjectId <= 0)
+                return false;
+
+            string scenarioKey = NormalizeScenarioKey(scenarioFile);
+
+            lock (Sync)
+            {
+                List<PendingAsset> matches =
+                    Pending
+                        .Where(
+                            item =>
+                                item.ArtObjectId == artObjectId &&
+                                item.ScenarioKey.Equals(
+                                    scenarioKey,
+                                    StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                if (matches.Count == 0)
+                    return false;
+
+                HashSet<string> paths =
+                    matches
+                        .Select(item => item.ArchivePath)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                Pending.RemoveAll(
+                    item =>
+                        item.ArtObjectId == artObjectId &&
+                        item.ScenarioKey.Equals(
+                            scenarioKey,
+                            StringComparison.OrdinalIgnoreCase));
+
+                PendingDeletions.RemoveAll(
+                    item =>
+                        item.Record.ArtObjectId == artObjectId ||
+                        paths.Contains(
+                            NormalizeArchivePath(
+                                item.Record.UgxArchivePath)));
+
+                return true;
             }
         }
 
