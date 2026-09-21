@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Ensemble.HaloMapBridge</AssemblyName>
+    <RootNamespace>Ensemble.HaloMapBridge</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    This helper is deliberately a SEPARATE PROCESS from the main Ensemble
+    application. It links against Reclaimer (GPL-3.0) as a format-reading
+    backend and communicates with Ensemble through OBJ + JSON files.
+
+    Reclaimer is pinned by Apply-Ensemble-v38.0.ps1 to v2.1.1624.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\External\Reclaimer\Reclaimer.Core\Reclaimer.Core.csproj" />
+    <ProjectReference Include="..\External\Reclaimer\Reclaimer.Blam\Reclaimer.Blam.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\External\Reclaimer\LICENSE"
+          Link="THIRD-PARTY-Reclaimer-LICENSE.txt"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\External\Reclaimer\LICENSE')" />
+    <None Include="..\External\Reclaimer\Reclaimer.Blam\Resources\xcompress32.dll"
+          Link="xcompress32.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\External\Reclaimer\Reclaimer.Blam\Resources\xcompress32.dll')" />
+    <None Include="..\External\Reclaimer\Reclaimer.Blam\Resources\xcompress64.dll"
+          Link="xcompress64.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\External\Reclaimer\Reclaimer.Blam\Resources\xcompress64.dll')" />
+  </ItemGroup>
+
+</Project>

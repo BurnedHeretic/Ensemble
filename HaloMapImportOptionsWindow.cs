@@ -1,4 +1,4 @@
-using Ensemble.Services;
+﻿using Ensemble.Services;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -15,15 +15,24 @@ namespace Ensemble
 
         public HaloMapImportOptionsWindow()
         {
-            Title = "Halo Map Import Size";
+            Title = "Halo BSP Import Size";
             Width = 500;
-            MinHeight = 390;
+            MinWidth = 440;
+            MaxHeight = Math.Max(
+                420,
+                SystemParameters.WorkArea.Height - 90);
             SizeToContent = SizeToContent.Height;
-            ResizeMode = ResizeMode.NoResize;
+            ResizeMode = ResizeMode.CanResize;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ShowInTaskbar = false;
 
             HaloWarsThemeService.Apply(this);
+
+            ScrollViewer scroll = new()
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
 
             Grid root = new()
             {
@@ -46,7 +55,7 @@ namespace Ensemble
             TextBlock info = new()
             {
                 Text =
-                    "Ensemble measures the geometry that was actually extracted, then fits that footprint to the current Halo Wars battlefield. This avoids tiny imports caused by distant/auxiliary Reach BSP metadata.",
+                    "Ensemble measures the geometry that was actually extracted, then fits that footprint to the current Halo Wars battlefield. This avoids tiny imports caused by distant/auxiliary source BSP metadata.",
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 16)
             };
@@ -79,7 +88,9 @@ namespace Ensemble
 
             TextBlock multiplierHelp = new()
             {
-                Text = "Use 2.0 for twice the auto-fit size, 0.5 for half size. The result is baked into the generated UGX.",
+                Text =
+                    "Use 2.0 for twice the auto-fit size, 0.5 for half size. " +
+                    "Very small source/Halo Wars scale mismatches can be corrected down to 0.001x.",
                 TextWrapping = TextWrapping.Wrap,
                 Opacity = 0.75,
                 Margin = new Thickness(155, 3, 0, 16)
@@ -117,7 +128,8 @@ namespace Ensemble
             Grid.SetRow(buttons, 6);
             root.Children.Add(buttons);
 
-            Content = root;
+            scroll.Content = root;
+            Content = scroll;
         }
 
         private static Grid BuildFieldRow(
@@ -160,19 +172,19 @@ namespace Ensemble
                 MessageBox.Show(
                     this,
                     "Map coverage must be between 5 and 300 percent.",
-                    "Halo Map Import Size",
+                    "Halo BSP Import Size",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
             }
 
             if (!TryParseFloat(_multiplierText.Text, out float multiplier) ||
-                multiplier < 0.05f || multiplier > 20.0f)
+                multiplier < 0.001f || multiplier > 100.0f)
             {
                 MessageBox.Show(
                     this,
-                    "Extra size multiplier must be between 0.05 and 20.0.",
-                    "Halo Map Import Size",
+                    "Extra size multiplier must be between 0.001 and 100.0.",
+                    "Halo BSP Import Size",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;

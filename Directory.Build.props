@@ -1,7 +1,27 @@
 ﻿<Project>
-  <PropertyGroup>
-    <Version>0.9.0</Version>
-    <AssemblyVersion>0.9.0.0</AssemblyVersion>
-    <FileVersion>0.9.0.0</FileVersion>
+  <!--
+    Ensemble v38.2 build guard.
+
+    IMPORTANT:
+    The main SDK-style Ensemble project recursively discovers *.cs files under
+    its directory. The MCC helper and fetched Reclaimer source must therefore
+    be excluded BEFORE default compile items are evaluated.
+
+    The condition deliberately applies only to the main "Ensemble" project.
+    Ensemble.HaloMapBridge and Reclaimer projects still compile their own files.
+  -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Ensemble'">
+    <DefaultItemExcludes>$(DefaultItemExcludes);Ensemble.HaloMapBridge\**;External\**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'Ensemble'">
+    <Compile Remove="Ensemble.HaloMapBridge\**\*.cs" />
+    <Compile Remove="External\**\*.cs" />
+    <EmbeddedResource Remove="Ensemble.HaloMapBridge\**\*" />
+    <EmbeddedResource Remove="External\**\*" />
+    <Content Remove="Ensemble.HaloMapBridge\**\*" />
+    <Content Remove="External\**\*" />
+    <None Remove="Ensemble.HaloMapBridge\**\*" />
+    <None Remove="External\**\*" />
+  </ItemGroup>
 </Project>
